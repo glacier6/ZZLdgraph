@@ -49,6 +49,6 @@ func (ssuite *SystestTestSuite) Upgrade() {
 	// Not implemented for integration tests
 }
 
-func TestSystestTestSuite(t *testing.T) {
+func TestSystestSuite(t *testing.T) {
 	suite.Run(t, new(SystestTestSuite))
 }

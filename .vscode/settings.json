@@ -2,5 +2,11 @@
   "editor.formatOnSave": true,
   "editor.defaultFormatter": "trunk.io",
   "editor.trimAutoWhitespace": true,
-  "trunk.autoInit": false
+  "trunk.autoInit": false,
+  "[go]": {
+    "editor.defaultFormatter": "golang.go"
+  },
+  "[jsonc]": {
+    "editor.defaultFormatter": "vscode.json-language-features"
+  }
 }
