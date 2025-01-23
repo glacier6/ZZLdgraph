@@ -112,6 +112,9 @@ func (vc *viLocalCache) GetWithLockHeld(key []byte) (*[]byte, error) {
 }
 
 func (vc *viLocalCache) GetValueFromPostingList(pl *List) (*[]byte, error) {
+	if pl.cache != nil {
+		return pl.cache, nil
+	}
 	value := pl.findStaticValue(vc.delegate.startTs)
 
 	if value == nil || len(value.Postings) == 0 {
@@ -122,7 +125,8 @@ func (vc *viLocalCache) GetValueFromPostingList(pl *List) (*[]byte, error) {
 		return nil, ErrNoValue
 	}
 
-	return &value.Postings[0].Value, nil
+	pl.cache = &value.Postings[0].Value
+	return pl.cache, nil
 }
 
 func NewViLocalCache(delegate *LocalCache) *viLocalCache {

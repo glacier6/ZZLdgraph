@@ -103,10 +103,11 @@ func (vt *viTxn) GetWithLockHeld(key []byte) (*[]byte, error) {
 }
 
 func (vt *viTxn) GetValueFromPostingList(pl *List) (*[]byte, error) {
+	if pl.cache != nil {
+		return pl.cache, nil
+	}
 	value := pl.findStaticValue(vt.delegate.StartTs)
 
-	// When the posting is deleted, we find the key in the badger, but no postings in it. This should also
-	// return ErrKeyNotFound as that is what we except in the later functions.
 	if value == nil || len(value.Postings) == 0 {
 		return nil, ErrNoValue
 	}
@@ -115,7 +116,8 @@ func (vt *viTxn) GetValueFromPostingList(pl *List) (*[]byte, error) {
 		return nil, ErrNoValue
 	}
 
-	return &value.Postings[0].Value, nil
+	pl.cache = &value.Postings[0].Value
+	return pl.cache, nil
 }
 
 func (vt *viTxn) AddMutation(ctx context.Context, key []byte, t *index.KeyValue) error {
