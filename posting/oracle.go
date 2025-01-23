@@ -111,7 +111,7 @@ func (vt *viTxn) GetValueFromPostingList(pl *List) (*[]byte, error) {
 		return nil, ErrNoValue
 	}
 
-	if hasDeleteAll(value.Postings[0]) || value.Postings[0].Op == Del {
+	if value.Postings[0].Op == Del {
 		return nil, ErrNoValue
 	}
 
