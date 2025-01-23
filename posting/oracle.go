@@ -84,7 +84,7 @@ func (vt *viTxn) StartTs() uint64 {
 	return vt.delegate.StartTs
 }
 
-func (vt *viTxn) Get(key []byte) (rval index.Value, rerr error) {
+func (vt *viTxn) Get(key []byte) (*[]byte, error) {
 	pl, err := vt.delegate.cache.Get(key)
 	if err != nil {
 		return nil, err
@@ -94,7 +94,7 @@ func (vt *viTxn) Get(key []byte) (rval index.Value, rerr error) {
 	return vt.GetValueFromPostingList(pl)
 }
 
-func (vt *viTxn) GetWithLockHeld(key []byte) (rval index.Value, rerr error) {
+func (vt *viTxn) GetWithLockHeld(key []byte) (*[]byte, error) {
 	pl, err := vt.delegate.cache.Get(key)
 	if err != nil {
 		return nil, err
@@ -102,7 +102,7 @@ func (vt *viTxn) GetWithLockHeld(key []byte) (rval index.Value, rerr error) {
 	return vt.GetValueFromPostingList(pl)
 }
 
-func (vt *viTxn) GetValueFromPostingList(pl *List) (rval index.Value, rerr error) {
+func (vt *viTxn) GetValueFromPostingList(pl *List) (*[]byte, error) {
 	value := pl.findStaticValue(vt.delegate.StartTs)
 
 	// When the posting is deleted, we find the key in the badger, but no postings in it. This should also
@@ -115,7 +115,7 @@ func (vt *viTxn) GetValueFromPostingList(pl *List) (rval index.Value, rerr error
 		return nil, ErrNoValue
 	}
 
-	return value.Postings[0].Value, nil
+	return &value.Postings[0].Value, nil
 }
 
 func (vt *viTxn) AddMutation(ctx context.Context, key []byte, t *index.KeyValue) error {
