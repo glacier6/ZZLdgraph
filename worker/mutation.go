@@ -95,12 +95,12 @@ func runMutation(ctx context.Context, edge *pb.DirectedEdge, txn *posting.Txn) e
 	// the rollup operation would consolidate all these deltas into a posting list.
 	var getFn func(key []byte) (*posting.List, error)
 	switch {
-	case len(su.GetTokenizer()) > 0 || su.GetCount():
-		// Any index or count index.
-		getFn = txn.Get
 	case su.GetValueType() == pb.Posting_UID && !su.GetList():
 		// Single UID, not a list.
 		getFn = txn.GetScalarList
+	case len(su.GetTokenizer()) > 0 || su.GetCount():
+		// Any index or count index.
+		getFn = txn.Get
 	case edge.Op == pb.DirectedEdge_DEL:
 		// Covers various delete cases to keep things simple.
 		getFn = txn.Get
