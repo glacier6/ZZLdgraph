@@ -163,6 +163,25 @@ func (txn *Txn) GetFromDelta(key []byte) (*List, error) {
 	return txn.cache.GetFromDelta(key)
 }
 
+func (txn *Txn) GetScalarList(key []byte) (*List, error) {
+	l, err := txn.cache.GetFromDelta(key)
+	if err != nil {
+		return nil, err
+	}
+	if l.mutationMap.len() == 0 && l.plist == nil {
+		pl, err := txn.cache.GetSinglePosting(key)
+		if err != nil {
+			return nil, err
+		}
+		if pl.CommitTs == 0 {
+			l.mutationMap.setCurrentEntries(txn.StartTs, pl)
+		} else {
+			l.mutationMap.insertCommittedPostings(pl)
+		}
+	}
+	return l, nil
+}
+
 // Update calls UpdateDeltasAndDiscardLists on the local cache.
 func (txn *Txn) Update() {
 	txn.cache.UpdateDeltasAndDiscardLists()

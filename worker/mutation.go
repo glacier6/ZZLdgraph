@@ -100,7 +100,7 @@ func runMutation(ctx context.Context, edge *pb.DirectedEdge, txn *posting.Txn) e
 		getFn = txn.Get
 	case su.GetValueType() == pb.Posting_UID && !su.GetList():
 		// Single UID, not a list.
-		getFn = txn.Get
+		getFn = txn.GetScalarList
 	case edge.Op == pb.DirectedEdge_DEL:
 		// Covers various delete cases to keep things simple.
 		getFn = txn.Get
