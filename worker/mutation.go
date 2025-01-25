@@ -19,6 +19,7 @@ package worker
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -93,14 +94,19 @@ func runMutation(ctx context.Context, edge *pb.DirectedEdge, txn *posting.Txn) e
 	// if we're doing indexing or count index or enforcing single UID, etc. In other cases, we can
 	// just create a posting list facade in memory and use it to store the delta in Badger. Later,
 	// the rollup operation would consolidate all these deltas into a posting list.
+	valType := su.GetValueType()
+	isList := su.GetList()
 	var getFn func(key []byte) (*posting.List, error)
 	switch {
-	case su.GetValueType() == pb.Posting_UID && !su.GetList():
-		// Single UID, not a list.
+	case valType == pb.Posting_INT && !isList:
+		fmt.Println("Here")
 		getFn = txn.GetScalarList
 	case len(su.GetTokenizer()) > 0 || su.GetCount():
 		// Any index or count index.
 		getFn = txn.Get
+	case su.GetValueType() == pb.Posting_UID && !isList:
+		// Single UID, not a list.
+		getFn = txn.GetScalarList
 	case edge.Op == pb.DirectedEdge_DEL:
 		// Covers various delete cases to keep things simple.
 		getFn = txn.Get
