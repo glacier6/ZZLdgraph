@@ -98,6 +98,9 @@ func setBadgerOptions(opt badger.Options) badger.Options {
 	// detection. Using badger's conflict detection uses memory which can be
 	// saved by disabling it.
 	opt.DetectConflicts = false
+	opt.TableSizeMultiplier = 5
+
+	opt = opt.WithNumCompactors(8)
 
 	// Settings for the data directory.
 	return opt
