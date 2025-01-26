@@ -97,7 +97,7 @@ func runMutation(ctx context.Context, edge *pb.DirectedEdge, txn *posting.Txn) e
 	isList := su.GetList()
 	var getFn func(key []byte) (*posting.List, error)
 	switch {
-	case valType == pb.Posting_INT && !isList:
+	case len(edge.Lang) == 0 && !isList:
 		getFn = txn.GetScalarList
 	case len(su.GetTokenizer()) > 0 || su.GetCount():
 		// Any index or count index.
