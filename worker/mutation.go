@@ -19,7 +19,6 @@ package worker
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -99,7 +98,6 @@ func runMutation(ctx context.Context, edge *pb.DirectedEdge, txn *posting.Txn) e
 	var getFn func(key []byte) (*posting.List, error)
 	switch {
 	case valType == pb.Posting_INT && !isList:
-		fmt.Println("Here")
 		getFn = txn.GetScalarList
 	case len(su.GetTokenizer()) > 0 || su.GetCount():
 		// Any index or count index.

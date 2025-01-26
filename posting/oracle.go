@@ -168,7 +168,7 @@ func (txn *Txn) GetScalarList(key []byte) (*List, error) {
 	if err != nil {
 		return nil, err
 	}
-	if l.mutationMap.len() == 0 && l.plist == nil {
+	if l.mutationMap.len() == 0 && len(l.plist.Postings) == 0 {
 		pl, err := txn.cache.GetSinglePosting(key)
 		if err != nil {
 			return nil, err
