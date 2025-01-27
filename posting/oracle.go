@@ -24,6 +24,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/dgraph-io/badger/v4"
 	"github.com/golang/glog"
 	ostats "go.opencensus.io/stats"
 
@@ -169,7 +170,10 @@ func (txn *Txn) GetScalarList(key []byte) (*List, error) {
 		return nil, err
 	}
 	if l.mutationMap.len() == 0 && len(l.plist.Postings) == 0 {
-		pl, err := txn.cache.GetSinglePosting(key)
+		pl, err := txn.cache.readPostingListAt(key)
+		if err == badger.ErrKeyNotFound {
+			return l, nil
+		}
 		if err != nil {
 			return nil, err
 		}

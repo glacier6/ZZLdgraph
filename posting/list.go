@@ -2059,6 +2059,10 @@ func (l *List) findPosting(readTs uint64, uid uint64) (found bool, pos *pb.Posti
 	return false, nil, nil
 }
 
+func (l *List) Print() {
+	fmt.Println("PRINTING", l.key, l.plist.Postings, l.mutationMap.print())
+}
+
 // Facets gives facets for the posting representing value.
 func (l *List) Facets(readTs uint64, param *pb.FacetParams, langs []string,
 	listType bool) ([]*pb.Facets, error) {
