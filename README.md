@@ -1,3 +1,9 @@
+ZZL写在最前：
+(1)Dgraph如何从源码构建运行环境，以方便DEBUG？Dgraph如何与修改的Badger联系起来？
+  首先VSCODE先下载好GO语言的工具包，详见https://blog.csdn.net/weixin_44387339/article/details/131633127
+  然后点击VSCODE左侧调试，分别本地运行alpha与zero即可（默认已经配置好端口号了），然后打断点，并在ratel里发送请求测试就行
+  当前ratel地址 [192.168.80.128](http://192.168.80.128:8000/?latest)
+  当前zero地址 http://192.168.80.128:8080
 <picture>
       <source
         srcset="/logo-dark.png"
