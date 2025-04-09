@@ -79,6 +79,7 @@ var (
 )
 
 func init() {
+	// alpha节点的初始化
 	Alpha.Cmd = &cobra.Command{
 		Use:   "alpha",
 		Short: "Run Dgraph Alpha database server",
@@ -87,9 +88,12 @@ A Dgraph Alpha instance stores the data. Each Dgraph Alpha is responsible for
 storing and serving one data group. If multiple Alphas serve the same group,
 they form a Raft group and provide synchronous replication.
 `,
+// Dgraph Alpha实例存储数据。每个Dgraph Alpha负责
+// 存储和服务一个数据组。如果多个阿尔法服务于同一组，
+// 它们形成一个Raft组并提供同步复制
 		Run: func(cmd *cobra.Command, args []string) {
 			defer x.StartProfile(Alpha.Conf).Stop()
-			run()
+			run() //NOTE:核心操作，如进行一些服务请求处理的绑定
 		},
 		Annotations: map[string]string{"group": "core"},
 	}
@@ -493,6 +497,7 @@ func setupServer(closer *z.Closer) {
 		log.Fatalf("Failed to setup TLS: %v\n", err)
 	}
 
+	//下面是定义两个监听器
 	httpListener, err := setupListener(laddr, httpPort())
 	if err != nil {
 		log.Fatal(err)
@@ -504,11 +509,14 @@ func setupServer(closer *z.Closer) {
 	}
 
 	baseMux := http.NewServeMux()
+	// ServeMux 本质上是一个 HTTP 请求路由器（或者叫多路复用器，Multiplexor）。它把收到的请求与一组预先定义的 URL 路径列表做对比，然后在匹配到路径的时候调用关联的处理器（Handler）。
 	http.Handle("/", audit.AuditRequestHttp(baseMux))
+	// http.Handle 用于将一个实现了 http.Handler 接口的对象注册到指定的 URL 路径前缀上，当有匹配该路径前缀的 HTTP 请求到来时，会调用该对象的 ServeHTTP 方法进行处理。
 
-	baseMux.HandleFunc("/query", queryHandler)
+	//NOTE:核心操作，以下均是
+	baseMux.HandleFunc("/query", queryHandler)  //查询
 	baseMux.HandleFunc("/query/", queryHandler)
-	baseMux.HandleFunc("/mutate", mutationHandler)
+	baseMux.HandleFunc("/mutate", mutationHandler) //更改
 	baseMux.HandleFunc("/mutate/", mutationHandler)
 	baseMux.HandleFunc("/commit", commitHandler)
 	baseMux.HandleFunc("/alter", alterHandler)
@@ -843,7 +851,7 @@ func run() {
 	// close alpha. This closer is for closing and waiting that subscription.
 	adminCloser := z.NewCloser(1)
 
-	setupServer(adminCloser)
+	setupServer(adminCloser) //NOTE:核心操作，绑定服务处理函数
 	glog.Infoln("GRPC and HTTP stopped.")
 
 	// This might not close until group is given the signal to close. So, only signal here,

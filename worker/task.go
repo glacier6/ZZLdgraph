@@ -50,6 +50,7 @@ import (
 	"github.com/hypermodeinc/dgraph/v24/x"
 )
 
+// 调用到另一个Dgraph Alpha实例上 的 ServeTask 接口
 func invokeNetworkRequest(ctx context.Context, addr string,
 	f func(context.Context, pb.WorkerClient) (interface{}, error)) (interface{}, error) {
 	pl, err := conn.GetPools().Get(addr)
@@ -76,7 +77,7 @@ func processWithBackupRequest(
 		return nil, errors.New("No network connection")
 	}
 	if len(addrs) == 1 {
-		reply, err := invokeNetworkRequest(ctx, addrs[0], f)
+		reply, err := invokeNetworkRequest(ctx, addrs[0], f) //NOTE:核心操作
 		return reply, err
 	}
 	type taskresult struct {
@@ -132,6 +133,7 @@ func processWithBackupRequest(
 // ProcessTaskOverNetwork is used to process the query and get the result from
 // the instance which stores posting list corresponding to the predicate in the
 // query.
+// ProcessTaskOverNetwork用于处理查询，并从存储查询中谓词对应的过账列表的实例中获取结果。
 func ProcessTaskOverNetwork(ctx context.Context, q *pb.Query) (*pb.Result, error) {
 	attr := q.Attr
 	gid, err := groups().BelongsToReadOnly(attr, q.ReadTs)
@@ -153,7 +155,7 @@ func ProcessTaskOverNetwork(ctx context.Context, q *pb.Query) (*pb.Result, error
 		return processTask(ctx, q, gid)
 	}
 
-	result, err := processWithBackupRequest(ctx, gid,
+	result, err := processWithBackupRequest(ctx, gid, //NOTE:核心操作
 		func(ctx context.Context, c pb.WorkerClient) (interface{}, error) {
 			return c.ServeTask(ctx, q)
 		})
@@ -1034,6 +1036,7 @@ func processTask(ctx context.Context, q *pb.Query, gid uint32) (*pb.Result, erro
 	}
 	// For now, remove the query level cache. It is causing contention for queries with high
 	// fan-out.
+	// 现在，删除查询级缓存。这导致了对高扇出查询的争用。
 	out, err := qs.helpProcessTask(ctx, q, gid)
 	if err != nil {
 		return nil, err
@@ -1052,7 +1055,7 @@ func (qs *queryState) helpProcessTask(ctx context.Context, q *pb.Query, gid uint
 	out := new(pb.Result)
 	attr := q.Attr
 
-	srcFn, err := parseSrcFn(ctx, q)
+	srcFn, err := parseSrcFn(ctx, q) // 获取查询函数: parseSrcFn(通过对 parseFuncType 和 parseFuncTypeHelper的调用)
 	if err != nil {
 		return nil, err
 	}
@@ -1107,6 +1110,7 @@ func (qs *queryState) helpProcessTask(ctx context.Context, q *pb.Query, gid uint
 	if err != nil {
 		return nil, err
 	}
+	// NOTE:下面就是调用对应的函数获取数据
 	if needsValPostings {
 		span.Annotate(nil, "handleValuePostings")
 		if err := qs.handleValuePostings(ctx, args); err != nil {

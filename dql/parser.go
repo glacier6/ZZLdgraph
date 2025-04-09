@@ -615,6 +615,7 @@ type Vars struct {
 
 // Result struct contains the Query list, its corresponding variable use list
 // and the mutation block.
+// 该结构体包含查询列表、其对应的变量使用列表和变异块。
 type Result struct {
 	Query     []*GraphQuery
 	QueryVars []*Vars

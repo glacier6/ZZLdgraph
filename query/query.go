@@ -40,6 +40,7 @@ import (
 	"github.com/hypermodeinc/dgraph/v24/x"
 )
 
+// zzlTODO: NOTE:下面这个需要看一下，能说明ProcessGraph 的处理方式
 /*
  * QUERY:
  * Let's take this query from GraphQL as example:
@@ -96,6 +97,7 @@ import (
 // Latency is used to keep track of the latency involved in parsing and processing
 // the query. It also contains information about the time it took to convert the
 // result into a format(JSON/Protocol Buffer) that the client expects.
+// 延迟用于跟踪解析和处理查询所涉及的延迟。它还包含将结果转换为客户端期望的格式（JSON/协议缓冲区）所需的时间信息。
 type Latency struct {
 	Start           time.Time     `json:"-"`
 	Parsing         time.Duration `json:"query_parsing"`
@@ -1311,7 +1313,7 @@ func (sg *SubGraph) populatePostAggregation(doneVars map[string]varValue, path [
 			return err
 		}
 	}
-	return sg.valueVarAggregation(doneVars, path, parent)
+	return sg.valueVarAggregation(doneVars, path, parent) //NOTE:核心操作，是数据处理算法的’最佳’接入点
 }
 
 // Filters might have updated the destuids. facetMatrix should also be updated to exclude uids that
@@ -2162,12 +2164,12 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 				sg.DestUIDs.Uids = nil
 			}
 		default:
-			taskQuery, err := createTaskQuery(ctx, sg)
+			taskQuery, err := createTaskQuery(ctx, sg) // NOTE:核心操作，创建一个查询任务
 			if err != nil {
 				rch <- err
 				return
 			}
-			result, err := worker.ProcessTaskOverNetwork(ctx, taskQuery)
+			result, err := worker.ProcessTaskOverNetwork(ctx, taskQuery) // NOTE:核心操作， Alpha 被分割到不同的组里，所以 ProcessTaskOverNetwork 先获取当前查询所属的组ID, 然后判断是不是在当前实例上, 如果是则执行立即processTask, 否则发起 RPC 远程调用。
 			switch {
 			case err != nil && strings.Contains(err.Error(), worker.ErrNonExistentTabletMessage):
 				sg.UnknownAttr = true
@@ -2757,6 +2759,9 @@ func UidToHex(uid uint64) string {
 // Request wraps the state that is used when executing query.
 // Initially ReadTs, Cache and DQLQuery are set.
 // Subgraphs, Vars and Latency are filled when processing query.
+// Request封装了执行查询时使用的状态。
+// 最初设置了ReadTs、Cache和DQLQuery。
+// 处理查询时填写子图、变量和延迟。
 type Request struct {
 	ReadTs   uint64 // ReadTs for the transaction.
 	Cache    int    // 0 represents use txn cache, 1 represents not to use cache.
@@ -2781,6 +2786,7 @@ func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 	loopStart := time.Now()
 	queries := req.DqlQuery.Query
 	// first loop converts queries to SubGraph representation and populates ReadTs And Cache.
+	// 第一个循环将查询转换为子图表示（即完成了 query.Request.GqlQuery.Query 到 query.SubGraph 的转换），并填充ReadTs和Cache。
 	for i := range queries {
 		gq := queries[i]
 
@@ -2808,10 +2814,12 @@ func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 
 	// canExecute returns true if a query block is ready to execute with all the variables
 	// that it depends on are already populated or are defined in the same block.
+	// 如果查询块已准备好执行，并且它所依赖的所有变量都已填充或定义在同一块中，则canExecute返回true。
 	canExecute := func(idx int) bool {
 		queryVars := req.DqlQuery.QueryVars[idx]
 		for _, v := range queryVars.Needs {
 			// here we check if this block defines the variable v.
+			// 这里我们检查这个块是否定义了变量v。
 			var selfDep bool
 			for _, vd := range queryVars.Defines {
 				if v == vd {
@@ -2821,6 +2829,7 @@ func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 			}
 			// The variable should be defined in this block or should have already been
 			// populated by some other block, otherwise we are not ready to execute yet.
+			// 变量应该在这个块中定义，或者应该已经被其他块填充，否则我们还没有准备好执行。
 			_, ok := req.Vars[v]
 			if !ok && !selfDep {
 				return false
@@ -2835,6 +2844,7 @@ func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 		var idxList []int
 		// If we have N blocks in a query, it can take a maximum of N iterations for all of them
 		// to be executed.
+		// 如果查询中有N个块，则最多需要N次迭代才能执行所有块。
 		for idx := range req.Subgraphs {
 			if hasExecuted[idx] {
 				continue
@@ -2869,9 +2879,11 @@ func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 				continue
 			}
 
+			// shortestPath 和 recurse 里最终都会调用到ProcessGraph。 接下来就是使用通道阻塞, 等待 ProcessGraph 的处理结果
 			switch {
 			case sg.Params.Alias == "shortest":
 				// We allow only one shortest path block per query.
+				// 我们只允许每个查询有一个最短路径块。
 				go func() {
 					shortestSg, err = shortestPath(ctx, sg)
 					errChan <- err
@@ -2917,7 +2929,7 @@ func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 				}
 			}
 
-			if err := sg.populatePostAggregation(req.Vars, []*SubGraph{}, nil); err != nil {
+			if err := sg.populatePostAggregation(req.Vars, []*SubGraph{}, nil); err != nil { //NOTE:核心操作，数据取出, 对数据进行后期的处理, 如排序, 分组, 应用@filter 等
 				return err
 			}
 		}
@@ -2948,7 +2960,7 @@ type ExecutionResult struct {
 
 // Process handles a query request.
 func (req *Request) Process(ctx context.Context) (er ExecutionResult, err error) {
-	err = req.ProcessQuery(ctx)
+	err = req.ProcessQuery(ctx) //NOTE:核心操作
 	if err != nil {
 		return er, err
 	}

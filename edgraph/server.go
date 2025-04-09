@@ -1044,41 +1044,55 @@ func updateUIDInMutations(gmu *dql.Mutation, qc *queryContext) error {
 type queryContext struct {
 	// req is the incoming, not yet parsed request containing
 	// a query or more than one mutations or both (in case of upsert)
-	req *api.Request
+	// 尚未解析的请求, 包含一个查询或多个突变或两者都有(在 upsert 的情况下)
+	req *api.Request	
 	// gmuList is the list of mutations after parsing req.Mutations
-	gmuList []*dql.Mutation
+	// 解析 req.Mutations 后的突变列表
+	gmuList []*dql.Mutation  
 	// dqlRes contains result of parsing the req.Query
-	dqlRes dql.Result
+	// 解析 req.Query 后的结果
+	dqlRes dql.Result 
 	// condVars are conditional variables used in the (modified) query to figure out
 	// whether the condition in Conditional Upsert is true. The string would be empty
 	// if the corresponding mutation is not a conditional upsert.
 	// Note that, len(condVars) == len(gmuList).
+	// 查询(修改后的)中使用的条件变量, 用于确定 Upsert 中的条件是否为真。如果相应的突变不是条件 upsert, 则该字符串将为空。
+	//  请注意, len(condVars) == len(gmuList)
 	condVars []string
 	// uidRes stores mapping from variable names to UIDs for UID variables.
 	// These variables are either dummy variables used for Conditional
 	// Upsert or variables used in the mutation block in the incoming request.
+	// 存储从变量名称到 UID 变量的 UID 的映射。 这些变量要么是用于 Upsert 条件的虚拟变量, 要么是用于传入请求的突变块中的变量
 	uidRes map[string][]string
 	// valRes stores mapping from variable names to values for value
 	// variables used in the mutation block of incoming request.
+	// 存储 mutation 请求块中使用的变量(从变量名到值)的映射
 	valRes map[string]map[uint64]types.Val
 	// l stores latency numbers
+	// 存储延迟数
 	latency *query.Latency
 	// span stores a opencensus span used throughout the query processing
+	// 存储在整个查询处理过程中使用的 opencensus span
 	span *otrace.Span
 	// graphql indicates whether the given request is from graphql admin or not.
+	// 指示给定的请求是否来自 graphql 管理员。
 	graphql bool
 	// gqlField stores the GraphQL field for which the query is being processed.
 	// This would be set only if the request is a query from GraphQL layer,
 	// otherwise it would be nil. (Eg. nil cases: in case of a DQL query,
 	// a mutation being executed from GraphQL layer).
+	// 存储正在处理查询的 GraphQL 字段。仅当请求是来自 GraphQL 层的查询时才会设置, 否则将为 nil。例如 nil 案例: 在 DQL 查询的情况下, 从 GraphQL 层执行突变
 	gqlField gqlSchema.Field
 	// nquadsCount maintains numbers of nquads which would be inserted as part of this request.
 	// In some cases(mostly upserts), numbers of nquads to be inserted can to huge(we have seen upto
 	// 1B) and resulting in OOM. We are limiting number of nquads which can be inserted in
 	// a single request.
+	// 维护将作为此请求的一部分插入的 nquad 数量。在某些情况下(主要是 upserts), 要插入的 nquad 数量可能会很大(我们已经看到高达 1B)并导致 OOM。
+	// 我们限制了可以在单个请求中插入的 nquad 数量。
 	nquadsCount int
 	// uniqueVar stores the mapping between the indexes of gmuList and gmu.Set,
 	// along with their respective uniqueQueryVariables.
+	// uniqueVar存储gmuList和gmu索引之间的映射。Set，以及它们各自的uniqueQueryVariables。
 	uniqueVars map[uint64]uniquePredMeta
 }
 
@@ -1198,6 +1212,7 @@ func getAuthMode(ctx context.Context) AuthMode {
 }
 
 // QueryGraphQL handles only GraphQL queries, neither mutations nor DQL.
+// QueryGraphQL只处理GraphQL查询，既不处理突变也不处理DQL。
 func (s *Server) QueryGraphQL(ctx context.Context, req *api.Request,
 	field gqlSchema.Field) (*api.Response, error) {
 	// Add a timeout for queries which don't have a deadline set. We don't want to
@@ -1226,11 +1241,14 @@ func (s *Server) Query(ctx context.Context, req *api.Request) (*api.Response, er
 	return resp, nil
 }
 
-// Query handles queries or mutations
-func (s *Server) QueryNoGrpc(ctx context.Context, req *api.Request) (*api.Response, error) {
+// Query handles queries or mutations ，Query处理查询或突变
+// 下面这个应该是后来新增的，用于处理DQL查询以及突变的，上面的那个QueryGraphQL是老版本处理GraphQL的
+// ratel的普通json格式query会到这里，req对象里面有请求体
+func (s *Server) QueryNoGrpc(ctx context.Context, req *api.Request) (*api.Response, error) { //NOTE:核心函数
 	ctx = x.AttachJWTNamespace(ctx)
 	if x.WorkerConfig.AclEnabled && req.GetStartTs() != 0 {
 		// A fresh StartTs is assigned if it is 0.
+		// 如果StartTs为0，则分配一个新的StartTs。
 		ns, err := x.ExtractNamespace(ctx)
 		if err != nil {
 			return nil, err
@@ -1242,6 +1260,7 @@ func (s *Server) QueryNoGrpc(ctx context.Context, req *api.Request) (*api.Respon
 	// Add a timeout for queries which don't have a deadline set. We don't want to
 	// apply a timeout if it's a mutation, that's currently handled by flag
 	// "txn-abort-after".
+	// 为没有设置截止日期的查询添加超时。如果是突变，我们不想应用超时，目前由标志“txn abort after”处理。
 	if req.GetMutations() == nil && x.Config.QueryTimeout != 0 {
 		if d, _ := ctx.Deadline(); d.IsZero() {
 			var cancel context.CancelFunc
@@ -1249,7 +1268,7 @@ func (s *Server) QueryNoGrpc(ctx context.Context, req *api.Request) (*api.Respon
 			defer cancel()
 		}
 	}
-	return s.doQuery(ctx, &Request{req: req, doAuth: getAuthMode(ctx)})
+	return s.doQuery(ctx, &Request{req: req, doAuth: getAuthMode(ctx)}) //NOTE:核心操作，查询与突变最终都会进这里面
 }
 
 func (s *Server) QueryNoAuth(ctx context.Context, req *api.Request) (*api.Response, error) {
@@ -1274,7 +1293,7 @@ func (s *Server) doQuery(ctx context.Context, req *Request) (resp *api.Response,
 	}
 
 	isGraphQL, _ := ctx.Value(IsGraphql).(bool)
-	if isGraphQL {
+	if isGraphQL { //判断是GraphQL还是DQL
 		atomic.AddUint64(&numGraphQL, 1)
 	} else {
 		atomic.AddUint64(&numDQL, 1)
@@ -1288,7 +1307,7 @@ func (s *Server) doQuery(ctx context.Context, req *Request) (resp *api.Response,
 	// 	glog.Infof("Got a query, DQL form: %+v at %+v", req.req, l.Start.Format(time.RFC3339))
 	// }
 
-	isMutation := len(req.req.Mutations) > 0
+	isMutation := len(req.req.Mutations) > 0 //判断是否是突变
 	methodRequest := methodQuery
 	if isMutation {
 		methodRequest = methodMutate
@@ -1346,13 +1365,15 @@ func (s *Server) doQuery(ctx context.Context, req *Request) (resp *api.Response,
 		}
 	}
 
-	qc := &queryContext{
+	qc := &queryContext{ // queryContext, 它是查询上下文, 用于传递处理查询、突变或 upsert 请求所需的所有变量
 		req:      req.req,
 		latency:  l,
 		span:     span,
 		graphql:  isGraphQL,
 		gqlField: req.gqlField,
 	}
+	// parseRequest 里又转而调用了 validateQuery 函数
+	// (parseRequest, validateQuery)都只是在查询上下文的分析和验证上下功夫
 	if rerr = parseRequest(ctx, qc); rerr != nil {
 		return
 	}
@@ -1386,11 +1407,14 @@ func (s *Server) doQuery(ctx context.Context, req *Request) (resp *api.Response,
 	}
 
 	var gqlErrs error
-	if resp, rerr = processQuery(ctx, qc); rerr != nil {
+	// 
+	if resp, rerr = processQuery(ctx, qc); rerr != nil { //NOTE:核心操作，进一步完善和填充queryContext结构体，先是构造 query.Request 结构, 逐步填充这个结构, 然后调用实际业务逻辑的实施者query.Request
 		// if rerr is just some error from GraphQL encoding, then we need to continue the normal
 		// execution ignoring the error as we still need to assign latency info to resp. If we can
 		// change the api.Response proto to have a field to contain GraphQL errors, that would be
 		// great. Otherwise, we will have to do such checks a lot and that would make code ugly.
+		// 如果rerr只是GraphQL编码的一些错误，那么我们需要忽略错误继续正常执行，因为我们仍然需要为resp分配延迟信息。
+		// 如果我们可以更改api。响应原型有一个包含GraphQL错误的字段，那就太好了。否则，我们将不得不做很多这样的检查，这会使代码变得丑陋。
 		if qc.gqlField != nil && x.IsGqlErrorList(rerr) {
 			gqlErrs = rerr
 		} else {
@@ -1432,6 +1456,7 @@ func processQuery(ctx context.Context, qc *queryContext) (*api.Response, error) 
 	if ctx.Err() != nil {
 		return resp, ctx.Err()
 	}
+	// 先构造 query.Request 结构，后面的就是在填充这个qr
 	qr := query.Request{
 		Latency:  qc.latency,
 		DqlQuery: &qc.dqlRes,
@@ -1470,7 +1495,7 @@ func processQuery(ctx context.Context, qc *queryContext) (*api.Response, error) 
 	resp.Txn = &api.TxnContext{StartTs: qc.req.StartTs}
 
 	// Core processing happens here.
-	er, err := qr.Process(ctx)
+	er, err := qr.Process(ctx) //NOTE:核心操作，调用实际业务逻辑的实施者
 
 	if bool(glog.V(3)) || worker.LogDQLRequestEnabled() {
 		glog.Infof("Finished a query that started at: %+v",

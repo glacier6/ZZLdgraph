@@ -51,6 +51,7 @@ func allowed(method string) bool {
 
 // Common functionality for these request handlers. Returns true if the request is completely
 // handled here and nothing further needs to be done.
+// 请求处理程序的通用功能。如果请求在此处完全处理完毕，无需进一步操作，则返回true。
 func commonHandler(w http.ResponseWriter, r *http.Request) bool {
 	// Do these requests really need CORS headers? Doesn't seem like it, but they are probably
 	// harmless aside from the extra size they add to each response.
@@ -146,7 +147,11 @@ func parseDuration(r *http.Request, name string) (time.Duration, error) {
 
 // This method should just build the request and proxy it to the Query method of dgraph.Server.
 // It can then encode the response as appropriate before sending it back to the user.
+// 此方法只需构建请求并将其代理到dgraph的Query方法。服务器。
+// 然后，它可以在将响应发送回用户之前对其进行适当的编码。
+// zzlTODO:注意此方法会因为ratel每隔一段时间就会自动调用，目前还不知道ratel在做什么
 func queryHandler(w http.ResponseWriter, r *http.Request) {
+	// 注意这个是触发处理函数
 	if commonHandler(w, r) {
 		return
 	}
@@ -214,7 +219,7 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 	}
 
-	req := api.Request{
+	req := api.Request{ //构建一个请求对象
 		Vars:    params.Variables,
 		Query:   params.Query,
 		StartTs: startTs,
@@ -256,8 +261,8 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Core processing happens here.
-	resp, err := (&edgraph.Server{}).QueryNoGrpc(ctx, &req)
+	// Core processing happens here.核心处理发生在这里。
+	resp, err := (&edgraph.Server{}).QueryNoGrpc(ctx, &req) // NOTE:核心操作，处理查询
 	if err != nil {
 		x.SetStatusWithData(w, x.ErrorInvalidRequest, err.Error())
 		return
@@ -433,7 +438,7 @@ func mutationHandler(w http.ResponseWriter, r *http.Request) {
 	req.CommitNow = commitNow
 
 	ctx := x.AttachAccessJwt(context.Background(), r)
-	resp, err := (&edgraph.Server{}).QueryNoGrpc(ctx, req)
+	resp, err := (&edgraph.Server{}).QueryNoGrpc(ctx, req) // NOTE:核心操作，处理突变
 	if err != nil {
 		x.SetStatusWithData(w, x.ErrorInvalidRequest, err.Error())
 		return
