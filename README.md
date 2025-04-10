@@ -4,12 +4,14 @@ ZZL写在最前：
   然后点击VSCODE左侧调试，分别本地运行alpha与zero即可（默认已经配置好端口号了），然后打断点，并在ratel里发送请求测试就行
   当前ratel地址 [192.168.80.128](http://192.168.80.128:8000/?latest)
   当前zero地址 http://192.168.80.128:8080
-(2) GraphQL与DQL
+(2)Dgraph代码太庞大了，下面按分支来看
+    NOTE:4100  数据库绑定 各类请求的对应响应函数 的开端
+(3) GraphQL与DQL
     2.1 Dgraph的Graphql HTTP为: http://xxx.xxx.xxx.xxx:8080/graphql 在请求的body里面定义是query还是mutate
         Dgraph的DQL的 HTTP是通过URI指定操作的，如: http://xxx.xxx.xxx.xxx:8080/query 用来查询
         http://xxx.xxx.xxx.xxx:8080/mutate 用来执行 mutate操作
     2.2 DQL是GraphQL的一个超集，其受GraphQL启发，但包含了更多特性，所以往后统统用DQL，看代码也先只看DQL的
-
+(4)
 <picture>
       <source
         srcset="/logo-dark.png"

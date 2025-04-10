@@ -2153,6 +2153,7 @@ func (x *Tablet) GetUncompressedBytes() int64 {
 	return 0
 }
 
+// DirectedEdge 定向边
 type DirectedEdge struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache

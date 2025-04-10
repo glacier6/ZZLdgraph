@@ -2169,7 +2169,7 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 				rch <- err
 				return
 			}
-			result, err := worker.ProcessTaskOverNetwork(ctx, taskQuery) // NOTE:核心操作， Alpha 被分割到不同的组里，所以 ProcessTaskOverNetwork 先获取当前查询所属的组ID, 然后判断是不是在当前实例上, 如果是则执行立即processTask, 否则发起 RPC 远程调用。
+			result, err := worker.ProcessTaskOverNetwork(ctx, taskQuery) // NOTE:核心操作， Alpha 被分割到不同的组里（组内每个alpha数据一样），所以 ProcessTaskOverNetwork 先获取当前查询所属的组ID, 然后判断是不是在当前实例上, 如果是则执行立即processTask, 否则发起 RPC 远程调用。
 			switch {
 			case err != nil && strings.Contains(err.Error(), worker.ErrNonExistentTabletMessage):
 				sg.UnknownAttr = true
@@ -2879,21 +2879,21 @@ func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 				continue
 			}
 
-			// shortestPath 和 recurse 里最终都会调用到ProcessGraph。 接下来就是使用通道阻塞, 等待 ProcessGraph 的处理结果
+			// NOTE:shortestPath 和 recurse 里最终都会调用到ProcessGraph。 接下来就是使用通道阻塞, 等待 ProcessGraph 的处理结果
 			switch {
 			case sg.Params.Alias == "shortest":
 				// We allow only one shortest path block per query.
 				// 我们只允许每个查询有一个最短路径块。
 				go func() {
-					shortestSg, err = shortestPath(ctx, sg)
+					shortestSg, err = shortestPath(ctx, sg)  // NOTE:核心操作
 					errChan <- err
 				}()
 			case sg.Params.Recurse:
 				go func() {
-					errChan <- recurse(ctx, sg)
+					errChan <- recurse(ctx, sg) // NOTE:核心操作
 				}()
 			default:
-				go ProcessGraph(ctx, sg, nil, errChan)
+				go ProcessGraph(ctx, sg, nil, errChan) // NOTE:核心操作
 			}
 		}
 

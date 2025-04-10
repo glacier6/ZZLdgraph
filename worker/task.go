@@ -77,7 +77,7 @@ func processWithBackupRequest(
 		return nil, errors.New("No network connection")
 	}
 	if len(addrs) == 1 {
-		reply, err := invokeNetworkRequest(ctx, addrs[0], f) //NOTE:核心操作
+		reply, err := invokeNetworkRequest(ctx, addrs[0], f) //NOTE:核心操作，去别的组查了
 		return reply, err
 	}
 	type taskresult struct {
@@ -134,9 +134,10 @@ func processWithBackupRequest(
 // the instance which stores posting list corresponding to the predicate in the
 // query.
 // ProcessTaskOverNetwork用于处理查询，并从存储查询中谓词对应的过账列表的实例中获取结果。
+// 该函数先获取当前查询所属的组 ID, 然后判断是不是在当前alpha上, 如果是则执行立即processTask, 否则发起 RPC 远程调用。
 func ProcessTaskOverNetwork(ctx context.Context, q *pb.Query) (*pb.Result, error) {
 	attr := q.Attr
-	gid, err := groups().BelongsToReadOnly(attr, q.ReadTs)
+	gid, err := groups().BelongsToReadOnly(attr, q.ReadTs) // 先获取当前查询的结果所属的组 ID
 	switch {
 	case err != nil:
 		return nil, err
@@ -150,12 +151,13 @@ func ProcessTaskOverNetwork(ctx context.Context, q *pb.Query) (*pb.Result, error
 			attr, gid, q.ReadTs, groups().Node.Id)
 	}
 
-	if groups().ServesGroup(gid) {
+	if groups().ServesGroup(gid) { //如果在当前组
 		// No need for a network call, as this should be run from within this instance.
+		// 不需要网络调用，因为这应该在此实例中运行。
 		return processTask(ctx, q, gid)
 	}
 
-	result, err := processWithBackupRequest(ctx, gid, //NOTE:核心操作
+	result, err := processWithBackupRequest(ctx, gid, //NOTE:核心操作，不在当前组，此时应该发起RPC远程调用
 		func(ctx context.Context, c pb.WorkerClient) (interface{}, error) {
 			return c.ServeTask(ctx, q)
 		})
@@ -989,6 +991,7 @@ const (
 )
 
 // processTask processes the query, accumulates and returns the result.
+// processTask处理查询，累加并返回结果。
 func processTask(ctx context.Context, q *pb.Query, gid uint32) (*pb.Result, error) {
 	ctx, span := otrace.StartSpan(ctx, "processTask."+q.Attr)
 	defer span.End()
@@ -1017,6 +1020,9 @@ func processTask(ctx context.Context, q *pb.Query, gid uint32) (*pb.Result, erro
 	// we get partitioned away from group zero as long as it's not removed.
 	// BelongsToReadOnly is called instead of BelongsTo to prevent this alpha
 	// from requesting to serve this tablet.
+	// 如果一个组停止为tablet提供服务，并且它被从组0中分区出来，那么它就不会知道这个组不再为这个谓词提供服务。
+	// 如果我们正在为特定的tablet提供服务，并且只要它没有被删除，我们就可以从零组分区。
+	// 调用BelongsToReadOnly而不是BelongsTo，以防止此alpha请求提供此tablet。
 	knownGid, err := groups().BelongsToReadOnly(q.Attr, q.ReadTs)
 	switch {
 	case err != nil:
@@ -1037,7 +1043,7 @@ func processTask(ctx context.Context, q *pb.Query, gid uint32) (*pb.Result, erro
 	// For now, remove the query level cache. It is causing contention for queries with high
 	// fan-out.
 	// 现在，删除查询级缓存。这导致了对高扇出查询的争用。
-	out, err := qs.helpProcessTask(ctx, q, gid)
+	out, err := qs.helpProcessTask(ctx, q, gid) // NOTE:核心操作，真正的查询在此
 	if err != nil {
 		return nil, err
 	}

@@ -93,7 +93,7 @@ they form a Raft group and provide synchronous replication.
 // 它们形成一个Raft组并提供同步复制
 		Run: func(cmd *cobra.Command, args []string) {
 			defer x.StartProfile(Alpha.Conf).Stop()
-			run() //NOTE:核心操作，如进行一些服务请求处理的绑定
+			run() //NOTE:核心操作，如进行一些服务请求处理的绑定，一切处理请求的开端  NOTE:4100
 		},
 		Annotations: map[string]string{"group": "core"},
 	}
