@@ -4,14 +4,23 @@ ZZL写在最前：
   然后点击VSCODE左侧调试，分别本地运行alpha与zero即可（默认已经配置好端口号了），然后打断点，并在ratel里发送请求测试就行
   当前ratel地址 [192.168.80.128](http://192.168.80.128:8000/?latest)
   当前zero地址 http://192.168.80.128:8080
-(2)Dgraph代码太庞大了，下面按分支来看
+(2) 一些英语单词对照
+  predicate 谓词
+  Schema 模式
+(3)Dgraph代码太庞大了，下面按分支来看
     NOTE:4100  数据库绑定 各类请求的对应响应函数 的开端
-(3) GraphQL与DQL
+(4) GraphQL与DQL
     2.1 Dgraph的Graphql HTTP为: http://xxx.xxx.xxx.xxx:8080/graphql 在请求的body里面定义是query还是mutate
         Dgraph的DQL的 HTTP是通过URI指定操作的，如: http://xxx.xxx.xxx.xxx:8080/query 用来查询
         http://xxx.xxx.xxx.xxx:8080/mutate 用来执行 mutate操作
     2.2 DQL是GraphQL的一个超集，其受GraphQL启发，但包含了更多特性，所以往后统统用DQL，看代码也先只看DQL的
-(4)
+(5) Dgraph 采取gRPC进行分布式通信，gRPC是什么？
+    4.1 所谓RPC(remote procedure call 远程过程调用)框架实际是提供了一套机制，使得应用程序之间可以进行通信，而且也遵从server/client模型。使用的时候客户端调用server端提供的接口就像是调用本地的函数一样。
+    4.2 gRPC和restful API都提供了一套通信机制，用于server/client模型通信，而且它们都使用http作为底层的传输协议(严格地说, gRPC使用的http2.0，而restful api则不一定)。gRPC可以通过protobuf来定义接口，从而可以有更加严格的接口约束条件，且其通过protobuf可以将数据序列化为二进制编码，这会大幅减少需要传输的数据量，从而大幅提高性能。
+    4.3 gRPC可以方便地支持流式通信(理论上通过http2.0就可以使用streaming模式, 但是通常web服务的restful api似乎很少这么用，通常的流式数据应用如视频流，一般都会使用专门的协议如HLS，RTMP等，这些就不是我们通常web服务了，而是有专门的服务器应用。）
+(5) go语言的一些特性
+  5.1 结构体后面跟的``内的内容是结构体标签，是一种元数据类型
+      详见 https://www.cnblogs.com/aresxin/p/go-label.html
 <picture>
       <source
         srcset="/logo-dark.png"
