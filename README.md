@@ -1,26 +1,55 @@
-ZZL写在最前：
-(1)Dgraph如何从源码构建运行环境，以方便DEBUG？Dgraph如何与修改的Badger联系起来？
+## ZZL写在最前：
+### (1) Dgraph如何从源码构建运行环境，以方便DEBUG？Dgraph如何与修改的Badger联系起来？
   首先VSCODE先下载好GO语言的工具包，详见https://blog.csdn.net/weixin_44387339/article/details/131633127
   然后点击VSCODE左侧调试，分别本地运行alpha与zero即可（默认已经配置好端口号了），然后打断点，并在ratel里发送请求测试就行
   当前ratel地址 [192.168.80.128](http://192.168.80.128:8000/?latest)
   当前zero地址 http://192.168.80.128:8080
-(2) 一些英语单词对照
-  predicate 谓词
-  Schema 模式
-(3)Dgraph代码太庞大了，下面按分支来看
-    NOTE:4100  数据库绑定 各类请求的对应响应函数 的开端
-(4) GraphQL与DQL
-    2.1 Dgraph的Graphql HTTP为: http://xxx.xxx.xxx.xxx:8080/graphql 在请求的body里面定义是query还是mutate
-        Dgraph的DQL的 HTTP是通过URI指定操作的，如: http://xxx.xxx.xxx.xxx:8080/query 用来查询
+  
+###  (2) Dgraph的一些需要关注点
+  - 2.1 一些英语单词对照
+      predicate 谓词
+      Schema 模式
+      facet 分面
+  - 2.2 谓词实际就是JSON格式中的左侧
+      右侧叫宾语（所以可以是字面值（literal values）也可以是另一个节点或节点数组（此时左侧谓词也叫关系relationship））
+      所属对象（节点）则可以叫为主语
+  - 2.3 有关Schema
+      -  Dgraph 维护了一个包含所有谓词名称及其类型和索引的 Dgraph 类型 schema 列表，而schema定义节点的结构体，提供数据的结构化定义。
+        具体来说的话，Schema会定义底层三元组中谓语指向的宾语是什么节点类型又或者是什么具体类型的字面量，而且Schema也会定义在哪个谓语中需要定义索引
+      -  GraphQL与DQL的区别看4.5
+        
+  - 2.4 默认 Dgraph图中的关系（边）是有向的，不过可以用@hasInverse来告诉Dgraph如何处理双向关系，具体看官方文档 relationships 的内容
+  - 2.5 Dgraph支持自定义查询语句 详见文档的Custom DQL
+
+### (3) Dgraph代码太庞大了，下面按分支来看
+  NOTE:4100  数据库绑定 各类请求的对应响应函数 的开端
+### (4) GraphQL与DQL
+  - 4.1 GraphQL与DQL均是在Dgraph后端图数据之上实现的查询与操作语言，但DQL是GraphQL的一个超集，其受GraphQL启发，但包含了更多特性（所以可以统统用DQL，看代码也先只看DQL的）
+  - 4.2 Dgraph的Graphql HTTP为: http://xxx.xxx.xxx.xxx:8080/graphql 在请求的body里面定义是query还是mutate
+    Dgraph的DQL的 HTTP是通过URI指定操作的，如: http://xxx.xxx.xxx.xxx:8080/query 用来查询
         http://xxx.xxx.xxx.xxx:8080/mutate 用来执行 mutate操作
-    2.2 DQL是GraphQL的一个超集，其受GraphQL启发，但包含了更多特性，所以往后统统用DQL，看代码也先只看DQL的
-(5) Dgraph 采取gRPC进行分布式通信，gRPC是什么？
-    4.1 所谓RPC(remote procedure call 远程过程调用)框架实际是提供了一套机制，使得应用程序之间可以进行通信，而且也遵从server/client模型。使用的时候客户端调用server端提供的接口就像是调用本地的函数一样。
-    4.2 gRPC和restful API都提供了一套通信机制，用于server/client模型通信，而且它们都使用http作为底层的传输协议(严格地说, gRPC使用的http2.0，而restful api则不一定)。gRPC可以通过protobuf来定义接口，从而可以有更加严格的接口约束条件，且其通过protobuf可以将数据序列化为二进制编码，这会大幅减少需要传输的数据量，从而大幅提高性能。
-    4.3 gRPC可以方便地支持流式通信(理论上通过http2.0就可以使用streaming模式, 但是通常web服务的restful api似乎很少这么用，通常的流式数据应用如视频流，一般都会使用专门的协议如HLS，RTMP等，这些就不是我们通常web服务了，而是有专门的服务器应用。）
-(5) go语言的一些特性
-  5.1 结构体后面跟的``内的内容是结构体标签，是一种元数据类型
+  - 4.3 GraphQL 是一种强类型语言。与按端点组织的 REST 不同，GraphQL API 是按类型和字段组织的。类型系统用于定义模式，这是客户端和服务器之间的合同。GraphQL 使用类型来确保应用程序只请求可能的内容，并提供清晰且有用的错误信息。
+  - 4.4 DQL的查询语句与GraphQL的查询语句，模式定义等均不相同，但是其因为后端存的图数据是一个，可以GraphQL语句新增，DQL语句查询。
+  - 4.5 注意GraphQL（相当于ResetFul的一个东西）本身有一个模式的定义，而用GraphQL的时候，还会有一个将GraphQL的Schema转为Dgraph的Schema的过程，而GraphQL的Schema的标量类型有Int ， Float ， String ， Boolean 和 ID 。还有个 Int64 标量，以及一个以 RFC3339 格式表示的字符串类型的 DateTime 标量类型。而GraphQL的一个schema可以导致生成DQL schema中的多个断言以及相关的DQL type，具体如下图所示。
+      ![alt text](ZZLMdPictures/image.png)
+      PS:Scalar Type（标量类型）是数据库中的一种基本数据类型，用于表示单个值或原子值。
+    
+### (5) Dgraph 采取gRPC进行分布式通信，gRPC是什么？
+  - 5.1 所谓RPC(remote procedure call 远程过程调用)框架实际是提供了一套机制，使得应用程序之间可以进行通信，而且也遵从server/client模型。使用的时候客户端调用server端提供的接口就像是调用本地的函数一样。
+  - 5.2 gRPC和restful API都提供了一套通信机制，用于server/client模型通信，而且它们都使用http作为底层的传输协议(严格地说, gRPC使用的http2.0，而restful api则不一定)。gRPC可以通过protobuf来定义接口，从而可以有更加严格的接口约束条件，且其通过protobuf可以将数据序列化为二进制编码，这会大幅减少需要传输的数据量，从而大幅提高性能。
+  - 5.3 gRPC可以方便地支持流式通信(理论上通过http2.0就可以使用streaming模式, 但是通常web服务的restful api似乎很少这么用，通常的流式数据应用如视频流，一般都会使用专门的协议如HLS，RTMP等，这些就不是我们通常web服务了，而是有专门的服务器应用。）
+
+### (6) go语言的一些特性
+  - 6.1 结构体后面跟的``内的内容是结构体标签，是一种元数据类型，用于控制操作如何进行的
       详见 https://www.cnblogs.com/aresxin/p/go-label.html
+      
+      
+
+
+### 看官网，摘出来有用的散知识
+1.对于多节点设置，谓词被分配给首先看到该谓词的组。Dgraph 还会自动将谓词数据移动到不同的组以平衡谓词分布。这会每 10 分钟自动发生一次。客户端可以通过与所有 Dgraph 实例通信来协助此过程。对于 Go 客户端，这意味着为每个 Dgraph 实例传递一个 *grpc.ClientConn ，或者通过负载均衡器路由流量。变更以轮询方式执行，导致半随机的初始谓词分布。
+2.
+
 <picture>
       <source
         srcset="/logo-dark.png"
