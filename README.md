@@ -17,12 +17,16 @@
       -  Dgraph 维护了一个包含所有谓词名称及其类型和索引的 Dgraph 类型 schema 列表，而schema定义节点的结构体，提供数据的结构化定义。  
         具体来说的话，Schema会定义底层三元组中谓语指向的宾语是什么节点类型又或者是什么具体类型的字面量，而且Schema也会定义在哪个谓语中需要定义索引  
       -  GraphQL与DQL的区别看4.5  
-        
-  - 2.4 默认 Dgraph图中的关系（边）是有向的，不过可以用@hasInverse来告诉Dgraph如何处理双向关系，具体看官方文档 relationships 的内容  
+  - 2.4 默认 Dgraph图中的关系（边）是有向的，即其是单向边  
+        DQL的可以在谓词声明的时候，加上@reverse，以方便可以在查询的时候可以用～来查找指向当前节点的节点和属性（默认查找是找当前节点指向的节点和属性  ）
+        Grapfh QL可以用@hasInverse来告诉Dgraph如何处理双向关系，具体看官方文档 relationships 的内容  
   - 2.5 Dgraph支持自定义查询语句 详见文档的Custom DQL  
   - 2.6 Dgraph 按关系分片数据，因此一个关系的数据形成一个单独的分片，并存储在一个（组）服务器上，这种做法被称为“谓词分片”。
   - 2.7 聚合查询同学数据库的那个聚合函数，就是做统计的
-  
+  - 2.8 Dgraph对于谓词的使用模式有两种  
+        在 strict 模式下，您必须先声明谓词（更新 Dgraph 类型），然后才能使用这些谓词运行突变。  
+        在 flexible 模式（默认行为）下，您可以在不声明 DQL 模式中的谓词的情况下运行突变，按照突变的自动生成模式的类型。  
+  - 2.9 
 ### (3) Dgraph代码太庞大了，下面按分支来看  
   NOTE:4100  数据库绑定 各类请求的对应响应函数 的开端  
 ### (4) GraphQL与DQL  
@@ -33,8 +37,10 @@
   - 4.3 GraphQL 是一种强类型语言。与按端点组织的 REST 不同，GraphQL API 是按类型和字段组织的。类型系统用于定义模式，这是客户端和服务器之间的合同。GraphQL 使用类型来确保应用程序只请求可能的内容，并提供清晰且有用的错误信息。 
   - 4.4 DQL的查询语句与GraphQL的查询语句，模式定义等均不相同，但是其因为后端存的图数据是一个，可以GraphQL语句新增，DQL语句查询。  
   - 4.5 注意GraphQL（相当于ResetFul的一个东西）本身有一个模式的定义，而用GraphQL的时候，还会有一个将GraphQL的Schema转为Dgraph的Schema的过程，而GraphQL的Schema的标量类型有Int ， Float ， String ， Boolean 和 ID 。还有个 Int64 标量，以及一个以 RFC3339 格式表示的字符串类型的 DateTime 标量类型。而GraphQL的一个schema可以导致生成DQL schema中的多个断言以及相关的DQL type，具体如下图所示。  
+      PS：DQL的标量数据类型详见官方文档
       ![alt text](ZZLMdPictures/image.png)  
       PS:Scalar Type（标量类型）是数据库中的一种基本数据类型，用于表示单个值或原子值。  
+    
     
 ### (5) Dgraph 采取gRPC进行分布式通信，gRPC是什么？
   - 5.1 所谓RPC(remote procedure call 远程过程调用)框架实际是提供了一套机制，使得应用程序之间可以进行通信，而且也遵从server/client模型。使用的时候客户端调用server端提供的接口就像是调用本地的函数一样。  
@@ -45,8 +51,57 @@
   - 6.1 结构体后面跟的``内的内容是结构体标签，是一种元数据类型，用于控制操作如何进行的  
       详见 https://www.cnblogs.com/aresxin/p/go-label.html  
       
-      
+### (7) DQL的查询使用（另外需要看一看Functions）
+  - 7.1 DQL的查询结构类似函数，其内有两种块，一种是查询块，一个是变量块（Var块），变量块辅助查询块进行查询，具体如下
+      PS：每一次大括号均代表进行多一跳查询
+        // 定义一个DQL查询，所有参数必须使用$前缀，支持设置默认值
+        query ZZLQuery($year : int, $name : string ="Mackenzie Crook"){
+          // 下面是查询块，查询块可以并列有多个，返回的结果按查询块的名字来组织
+          // 查询示例：“Mackenzie Crook 参演的电影和 Jack Davenport 参演的电影”
+          Mackenzie(func:allofterms(name@en, $name)) {//先找到有name属性为Mackenzie Crook的节点  
+            name@en   // 得到该节点指向的属性名字  
+            french_name : name@fr  //运用Aliases别名，给出Mack的法语名字
+            actor.film {  // 该节点指向的actor.film节点，并且以该节点进行下一跳查询（即查询actor.film节点指向的属性与节点）
+              performance.film { //参演的电影
+                uid 
+                name@en 
+              } 
+              performance.character { //参演的角色
+                name@en 
+              } 
+            }
+          }
+          Jack(func:allofterms(name@en, "Jack Davenport")) {
+            name@en
+            actor.film {
+              performance.film { //参演的电影
+                uid 
+                name@en 
+              } 
+              performance.character { //参演的角色
+                name@en 
+              } 
+            } 
+          }
 
+          // 下面是变量块示例，变量块不会反映在查询结果中，变量块声明的如下的A B（匹配这些块的 UID 列表）均可以在后面的多个查询块或者变量块中使用
+          // 查询示例：“按类型排序的安吉丽娜·朱莉的电影”
+          var(func:allofterms(name@en, "angelina jolie")) {
+            name@en
+            actor.film {
+              A AS performance.film {  // A代表angelina参演的电影的UID列表
+                B AS genre // B代表angelina参演的电影的类型的UID列表
+              } 
+            }
+          }
+
+          films(func: uid(B), orderasc: name@en) { // 先找到所有在B列表内的类型
+            name@en  //得到类型名字
+            ~genre @filter(uid(A)) {  //反向边查询，查找指向该类型的电影，并且UID应该是A列表内的
+              name@en 
+            }
+          }
+        }
 
 ### 看官网，摘出来有用的散知识
 1.对于多节点设置，谓词被分配给首先看到该谓词的组。Dgraph 还会自动将谓词数据移动到不同的组以平衡谓词分布。这会每 10 分钟自动发生一次。客户端可以通过与所有 Dgraph 实例通信来协助此过程。对于 Go 客户端，这意味着为每个 Dgraph 实例传递一个 *grpc.ClientConn ，或者通过负载均衡器路由流量。变更以轮询方式执行，导致半随机的初始谓词分布。
