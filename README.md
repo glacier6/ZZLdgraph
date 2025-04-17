@@ -51,17 +51,18 @@
   - 6.1 结构体后面跟的``内的内容是结构体标签，是一种元数据类型，用于控制操作如何进行的  
       详见 https://www.cnblogs.com/aresxin/p/go-label.html  
       
-### (7) DQL的查询使用（另外需要看一看Functions）
-  - 7.1 DQL的查询结构类似函数，其内有两种块，一种是查询块，一个是变量块（Var块），变量块辅助查询块进行查询，具体如下
-      PS：每一次大括号均代表进行多一跳查询
-        // 定义一个DQL查询，所有参数必须使用$前缀，支持设置默认值
-        query ZZLQuery($year : int, $name : string ="Mackenzie Crook"){
-          // 下面是查询块，查询块可以并列有多个，返回的结果按查询块的名字来组织
-          // 查询示例：“Mackenzie Crook 参演的电影和 Jack Davenport 参演的电影”
-          Mackenzie(func:allofterms(name@en, $name)) {//先找到有name属性为Mackenzie Crook的节点  
-            name@en   // 得到该节点指向的属性名字  
-            french_name : name@fr  //运用Aliases别名，给出Mack的法语名字
-            actor.film {  // 该节点指向的actor.film节点，并且以该节点进行下一跳查询（即查询actor.film节点指向的属性与节点）
+### (7) DQL的查询与修改使用（另外需要看一看Functions）
+  - 7.1 DQL的查询结构类似函数，其内有两种块，一种是查询块，一个是变量块（Var块），变量块辅助查询块进行查询，具体如下  
+      PS：每一次大括号均代表进行多一跳查询  
+      ```bash
+        // 定义一个DQL查询，所有参数必须使用$前缀，支持设置默认值  
+        query ZZLQuery($year : int, $name : string ="Mackenzie Crook"){  // query是固定词  
+          // 下面是查询块，查询块可以并列有多个，返回的结果按查询块的名字来组织  
+          // 查询示例：“Mackenzie Crook 参演的电影和 Jack Davenport 参演的电影”  
+          Mackenzie(func:allofterms(name@en, $name)) {//先找到有name属性为Mackenzie Crook的节点   
+            name@en   // 得到该节点指向的属性名字   
+            french_name : name@fr  //运用Aliases别名，给出Mack的法语名字（:用来起别名）  
+            actor.film {  // 该节点指向的actor.film节点，并且以该节点进行下一跳查询（即查询actor.film节点指向的属性与节点）  
               performance.film { //参演的电影
                 uid 
                 name@en 
@@ -85,23 +86,61 @@
           }
 
           // 下面是变量块示例，变量块不会反映在查询结果中，变量块声明的如下的A B（匹配这些块的 UID 列表）均可以在后面的多个查询块或者变量块中使用
-          // 查询示例：“按类型排序的安吉丽娜·朱莉的电影”
-          var(func:allofterms(name@en, "angelina jolie")) {
+          // 查询示例：“按类型排序的安吉丽娜·朱莉的电影的前五个”
+          var(func:allofterms(name@en, "angelina jolie")) {  // val 函数允许从值变量中提取值。且其不会出现在查询结果中（比如下面的films是会在返回的json里面有所体现的）。
             name@en
             actor.film {
-              A AS performance.film {  // A代表angelina参演的电影的UID列表
+              A AS performance.film {  // A代表angelina参演的电影的UID列表(AS用来起变量的名字，其后可以跟math( <exp> )来表示计算)
                 B AS genre // B代表angelina参演的电影的类型的UID列表
               } 
             }
           }
 
-          films(func: uid(B), orderasc: name@en) { // 先找到所有在B列表内的类型
+          films(func: uid(B), orderasc: name@en, first: 5) { // 先找到所有在B列表内的类型，按照类型的name属性升序排列，并且返回前5条
             name@en  //得到类型名字
             ~genre @filter(uid(A)) {  //反向边查询，查找指向该类型的电影，并且UID应该是A列表内的
               name@en 
             }
           }
         }
+      ```
+  - 7.2 普通的mutation，新增与删除
+    普通新增块
+    ```bash
+    {
+      set {
+        _:n1 <name> "Star Wars: Episode IV - A New Hope" .
+        _:n1 <release_date>  "1977-05-25" .
+        _:n1 <director> _:n2 .
+        _:n2 <name> "George Lucas" .
+      }
+    }
+    ```
+    普通删除块
+    ```bash
+    {
+      delete {
+        <0xf11168064b01135b> <died> "1998" .  // 谓词与宾语支持通配符 *
+      }
+    }
+    ```
+
+  - 7.3 修改查询整合结构体upsert
+    ```bash
+    upsert { // upsert是固定词
+      query { // query是固定词，一般这个query都用来得到变量，注意一个upsert块仅支持有一个query块
+        v as var(func: regexp(email, /.*@company1.io$/))  //得到变量v
+      }
+
+      mutation @if(lt(len(v), 100) AND gt(len(v), 50)) {  // mutation是固定词，条件执行mutation
+        delete {
+          uid(v) <name> * .
+          uid(v) <email> * .
+          uid(v) <age> * .
+        }
+      }
+    }
+    ```
 
 ### 看官网，摘出来有用的散知识
 1.对于多节点设置，谓词被分配给首先看到该谓词的组。Dgraph 还会自动将谓词数据移动到不同的组以平衡谓词分布。这会每 10 分钟自动发生一次。客户端可以通过与所有 Dgraph 实例通信来协助此过程。对于 Go 客户端，这意味着为每个 Dgraph 实例传递一个 *grpc.ClientConn ，或者通过负载均衡器路由流量。变更以轮询方式执行，导致半随机的初始谓词分布。
