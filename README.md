@@ -9,7 +9,7 @@
   - 2.1 一些英语单词对照  
       - predicate 谓词  
       - Schema 模式  
-      - facet 方面（在Dgraph中，常表示关系自身的属性，如权重，时间范围等）  
+      - facet 方面（在Dgraph中，常表示关系（即边）自身的属性，如权重，时间范围等）  
   - 2.2 谓词实际就是JSON格式中的左侧,有时也叫relationship（关系），或者边  
       右侧叫宾语（所以可以是字面值（literal values）也可以是另一个节点或节点数组（此时左侧谓词也叫关系relationship））  
       所属对象（节点）则可以叫为主语  
@@ -75,13 +75,17 @@
           Jack(func:allofterms(name@en, "Jack Davenport")) {
             name@en
             actor.film {
-              performance.film { //参演的电影
+              performance.film { // 参演的电影
                 uid 
                 name@en 
               } 
               performance.character { //参演的角色
                 name@en 
               } 
+            }
+            // 下面friend是补充的 facet
+            friend @facets(close) { // 找出与Jack亲密的好友，这个close是friend边的一个属性，也就是说@facet做的是一个根据边属性筛选边的功能
+              name 
             } 
           }
 
@@ -112,6 +116,7 @@
         _:n1 <name> "Star Wars: Episode IV - A New Hope" .
         _:n1 <release_date>  "1977-05-25" .
         _:n1 <director> _:n2 .
+        _:n1 <mobile> "040123456" (since=2006-01-02T15:04:05) . // 为边添加属性（facet），该行表示从2006年开始用这个手机号
         _:n2 <name> "George Lucas" .
       }
     }
