@@ -21,16 +21,25 @@
         DQL的可以在谓词声明的时候，加上@reverse，以方便可以在查询的时候可以用～来查找指向当前节点的节点和属性（默认查找是找当前节点指向的节点和属性  ）
         Grapfh QL可以用@hasInverse来告诉Dgraph如何处理双向关系，具体看官方文档 relationships 的内容  
   - 2.5 Dgraph支持自定义查询语句 详见文档的Custom DQL  
-  - 2.6 Dgraph 按关系分片数据，因此一个关系的数据形成一个单独的分片，并存储在一个（组）服务器上，这种做法被称为“谓词分片”。
+  - 2.6 Dgraph 按关系（谓词）分片数据，因此一个关系的数据形成一个单独的分片，并存储在一个（组）服务器上，这种做法被称为“谓词分片”。  
+        且Zero会根据每个组的磁盘使用情况来自动均衡集群(默认每10分钟自动进行)，在平衡分布时，被移动的谓词会变为只读状态，突变将会全部拒绝。
   - 2.7 聚合查询同学数据库的那个聚合函数，就是做统计的
   - 2.8 Dgraph对于谓词的使用模式有两种  
         在 strict 模式下，您必须先声明谓词（更新 Dgraph 类型），然后才能使用这些谓词运行突变。  
         在 flexible 模式（默认行为）下，您可以在不声明 DQL 模式中的谓词的情况下运行突变，按照突变的自动生成模式的类型。  
-  - 2.9 
+  - 2.9 NOTE:重要！！！ 有关数据库调试及运行状态查看的，该点详见官方文档的 Administration-Observablity的Metrics（看有何种统计及运行信息）以及Debugging（如何看各种统计运行信息以及一些其他的调试工具）  
+        - 2.9.1 Dgraph自带debug功能，在请求的url后加上debug=true的话，就会在返回的时候在server_latency内加上解析花费时间，处理花费时间以及编码花费时间，此外还有txn的start ts  
+        - 2.9.2 而有关服务器当前运行状态的可以看官方文档的 Administration-Observablity-Metrics的内容，有关Raft，Badger，Dgraph的各种指标都有，很方便！！！！
+        - 2.9.3 每个 Dgraph 数据节点通过 /debug/pprof 端点公开配置文件，通过 /debug/vars 端点公开指标（指标不存储，仅能进行即时查看）。 可以通过轮询这两个端口来监控状态 或者 通过Prometheus + Grafana（图形化展示）来监控 
+        - 2.9.4 另外，Dgraph 与 OpenCensus 集成，可以收集Dgraph集群的分布式跟踪信息  
+  - 2.10 NOTE:重要！！！ 每个组内构成一个RAFT应用环境，即每个组内均有一个leader，查看哪个为leader可以请求Zero的 /state 端口，该端口还会返回很多状态信息，详见官方文档的 Administration-(Self Managed Deployments)-(Dgraph Zero)
+  - 2.11 Zero使用gPRC在5080端口上进行集群内部通信，使用6080进行管理操作
+  - 2.12 NOTE: Badger 的值是 Posting Lists 和索引。Badger 的键是通过连接 <RelationshipName>+<NodeUID> 形成的。
+  - 2.13 Dgraph的事务，同Badger的理念基本一致，也是mvcc+乐观锁
 ### (3) Dgraph代码太庞大了，下面按分支来看  
   NOTE:4100  数据库绑定 各类请求的对应响应函数 的开端  
 ### (4) GraphQL与DQL  
-  - 4.1 GraphQL与DQL均是在Dgraph后端图数据之上实现的查询与操作语言，但DQL是GraphQL的一个超集，其受GraphQL启发，但包含了更多特性（所以可以统统用DQL，看代码也先只看DQL的）  
+  - 4.1 GraphQL与DQL均是在Dgraph后端图数据之上实现的查询与操作语言。DQL受GraphQL启发，但其既不是 GraphQL 的超集也不是子集，但通常比 GraphQL 更强大。（虽然官网说大多数用户用GraphQL，但是也说了GraphQL是会转为DQL来执行的，所以可以统统用DQL，看代码也先只看DQL的）  
   - 4.2 Dgraph的Graphql HTTP为: http://xxx.xxx.xxx.xxx:8080/graphql 在请求的body里面定义是query还是mutate  
     Dgraph的DQL的 HTTP是通过URI指定操作的，如: http://xxx.xxx.xxx.xxx:8080/query 用来查询  
         http://xxx.xxx.xxx.xxx:8080/mutate 用来执行 mutate操作  
@@ -50,9 +59,11 @@
 ### (6) go语言的一些特性
   - 6.1 结构体后面跟的``内的内容是结构体标签，是一种元数据类型，用于控制操作如何进行的  
       详见 https://www.cnblogs.com/aresxin/p/go-label.html  
+
+
       
-### (7) DQL的查询与修改使用（另外需要看一看Functions）
-  - 7.1 DQL的查询结构类似函数，其内有两种块，一种是查询块，一个是变量块（Var块），变量块辅助查询块进行查询，具体如下  
+### (99) DQL的查询与修改使用（另外需要看一看Functions）
+  - 99.1 DQL的查询结构类似函数，其内有两种块，一种是查询块，一个是变量块（Var块），变量块辅助查询块进行查询，具体如下  
       PS：每一次大括号均代表进行多一跳查询  
       ```bash
         // 定义一个DQL查询，所有参数必须使用$前缀，支持设置默认值  
@@ -72,9 +83,9 @@
               } 
             }
           }
-          Jack(func:allofterms(name@en, "Jack Davenport")) {
-            name@en
-            actor.film {
+          Jack(func:allofterms(name@en, "Jack Davenport")) @cascade { // @cascade 级联的功能是如果查询结果里面没有某一个节点属性，就不返回该匹配的节点，即是一个级联查询，如果结果里面没有某一个需要查到的属性，那么就认为这个节点不是想要查询的节点
+            name@en                                                   //  另外可以在cascade后加括号，然后里面放属性名，指定的只看某一属性有无（如@cascade（name））
+            actor.film { 
               performance.film { // 参演的电影
                 uid 
                 name@en 
@@ -108,7 +119,7 @@
           }
         }
       ```
-  - 7.2 普通的mutation，新增与删除
+  - 99.2 普通的mutation，新增与删除
     普通新增块
     ```bash
     {
@@ -143,6 +154,20 @@
           uid(v) <email> * .
           uid(v) <age> * .
         }
+      }
+    }
+    ```
+  - 99.4 找最短边
+    ```bash
+    // 注意最短路径查询使用Dijkstra算法计算  
+    // 每个查询只能有一个shortest路径块，且返回的结果中固定有且只有一个_path_对象（就算要查找两点之间的多条路径）
+    {
+      path as shortest(from: 0x2, to: 0x5) {   // 找到从0x2节点到0x5节点的最短边，注意该块在返回结果中会有所体现，其结果为_path_内的那条路径表示
+        friend @facets(weight) // 可以加上@facets表以此边的该facet属性（weight）作为该边的权重,一种边只能指定一个权重属性
+        enemy  // 也允许走enemy边
+      }
+      path(func: uid(path)) {  // 输出路径对象的每个经过的节点的名字
+        name
       }
     }
     ```
