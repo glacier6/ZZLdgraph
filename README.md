@@ -1,4 +1,8 @@
 ## ZZL写在最前：
+### 优化点
+  - 已知Dgraph不是按照子图分片的，而是按照谓词来分片的，那么将一些相关的谓词（查询的时候经常一起查询的，或者是新增的时候记录该结构体，并依此进行分片的选服务器存储操作）记录起来，然后挪动到同一台服务器里面（在空闲时间）
+  - 
+
 ### (1) Dgraph如何从源码构建运行环境，以方便DEBUG？Dgraph如何与修改的Badger联系起来？  
   首先VSCODE先下载好GO语言的工具包，详见https://blog.csdn.net/weixin_44387339/article/details/131633127  
   然后点击VSCODE左侧调试，分别本地运行alpha与zero即可（默认已经配置好端口号了），然后打断点，并在ratel里发送请求测试就行  
@@ -21,8 +25,9 @@
         DQL的可以在谓词声明的时候，加上@reverse，以方便可以在查询的时候可以用～来查找指向当前节点的节点和属性（默认查找是找当前节点指向的节点和属性  ）
         Grapfh QL可以用@hasInverse来告诉Dgraph如何处理双向关系，具体看官方文档 relationships 的内容  
   - 2.5 Dgraph支持自定义查询语句 详见文档的Custom DQL  
-  - 2.6 Dgraph 按关系（谓词）分片数据，因此一个关系的数据形成一个单独的分片，并存储在一个（组）服务器上，这种做法被称为“谓词分片”。  
-        且Zero会根据每个组的磁盘使用情况来自动均衡集群(默认每10分钟自动进行)，在平衡分布时，被移动的谓词会变为只读状态，突变将会全部拒绝。
+  - 2.6 Dgraph 按关系（谓词）分片数据，因此一个关系的数据形成一个单独的分片，并存储在一个（组）服务器上，这种做法被称为“谓词分片”（节点是隐含在谓词存储中）。这样可以在一台服务器上面就可以进行连接操作，然后能够向其他服务器进行少次数的RPC请求（因为相较于内外存，网络明显更慢！）便可得到完整所需的数据。
+        一个tablets（平板）对应一个单一谓词存储，且对应一个分片（官网说未来可能也支持一个tablets再划分为多个分片）  
+        且Zero会根据每个组的磁盘使用情况来自动均衡集群(默认每10分钟自动进行)，在平衡分布时，被移动的谓词会变为只读状态，突变将会全部拒绝。  
   - 2.7 聚合查询同学数据库的那个聚合函数，就是做统计的
   - 2.8 Dgraph对于谓词的使用模式有两种  
         在 strict 模式下，您必须先声明谓词（更新 Dgraph 类型），然后才能使用这些谓词运行突变。  
@@ -34,8 +39,13 @@
         - 2.9.4 另外，Dgraph 与 OpenCensus 集成，可以收集Dgraph集群的分布式跟踪信息  
   - 2.10 NOTE:重要！！！ 每个组内构成一个RAFT应用环境，即每个组内均有一个leader，查看哪个为leader可以请求Zero的 /state 端口，该端口还会返回很多状态信息，详见官方文档的 Administration-(Self Managed Deployments)-(Dgraph Zero)
   - 2.11 Zero使用gPRC在5080端口上进行集群内部通信，使用6080进行管理操作
-  - 2.12 NOTE: Badger 的值是 Posting Lists 和索引。Badger 的键是通过连接 <RelationshipName>+<NodeUID> 形成的。
+  - 2.12 NOTE: Badger 的值是 Posting Lists 和索引（Posting Lists是所有共享 <subject>+<predicate> 对的三元组的列表）。Badger 的键是通过连接 <RelationshipName>+<NodeUID> 形成的。 (UID是64位的数值)
+          如下面的数据，Posting Lists便是 person3UID+friend->[person2UID, person4UID]，也正因此，如果person的朋友有很多，那么这个KV变得巨大
+          person3	friend  朋友	person2
+          person3	friend  朋友	person4
   - 2.13 Dgraph的事务，同Badger的理念基本一致，也是mvcc+乐观锁
+  - 2.14 Dgraph 维护一组固定的worker进程（类似于线程或 goroutine），它们可以并行检索和执行通过 HTTP 或 gRPC 发送的查询。
+         Dgraph 还并行化单个查询执行中的任务（通过GO的协程goroutine），以最大化并行性和更充分地利用系统资源。
 ### (3) Dgraph代码太庞大了，下面按分支来看  
   NOTE:4100  数据库绑定 各类请求的对应响应函数 的开端  
 ### (4) GraphQL与DQL  
@@ -60,7 +70,12 @@
   - 6.1 结构体后面跟的``内的内容是结构体标签，是一种元数据类型，用于控制操作如何进行的  
       详见 https://www.cnblogs.com/aresxin/p/go-label.html  
 
-
+### (7) Protocol Buffers是什么？（Dgraph服务器之间通过gRPC通讯，而所有的gRPC接口貌似都是传输Protocol Buffers流，如果是HTTP接口则才是JSON）
+  - 7.1 Protocol buffers 与JSON,XML等均是做数据序列化的，但是其是将数据转换为二进制格式。
+        Protocol buffers 是⼀种语⾔中⽴，平台⽆关，可扩展的序列化数据的格式，可⽤于通信协议，数据存储 等。Protocol buffers 在序列化数据具有灵活、⾼效的特点。  
+        Protocol buffers 很适合做数据存储或 RPC 数据交换格式。可⽤于通讯协议、数据存储等领域的语⾔⽆ 关、平台⽆关、可扩展的序列化结构数据格式。  
+        Protocol buffers 在游戏和即时通信用的比较多。  
+      
       
 ### (99) DQL的查询与修改使用（另外需要看一看Functions）
   - 99.1 DQL的查询结构类似函数，其内有两种块，一种是查询块，一个是变量块（Var块），变量块辅助查询块进行查询，具体如下  
