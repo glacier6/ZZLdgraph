@@ -1,5 +1,5 @@
 module github.com/hypermodeinc/dgraph/v24
-
+// 上面这一行告诉了本项目内的包导入时，本项目就是这个，不需要去进行网络请求
 go 1.22.7
 
 require (

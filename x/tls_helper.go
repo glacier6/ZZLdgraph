@@ -98,6 +98,7 @@ func RegisterClientTLSFlags(flag *pflag.FlagSet) {
 }
 
 // LoadClientTLSConfigForInternalPort loads tls config for connecting to internal ports of cluster
+// LoadClientTLSConfigForInternalPort加载tls配置以连接到集群的内部端口
 func LoadClientTLSConfigForInternalPort(v *viper.Viper) (*tls.Config, error) {
 	tlsFlag := z.NewSuperFlag(v.GetString("tls")).MergeAndCheckDefault(TLSDefaults)
 

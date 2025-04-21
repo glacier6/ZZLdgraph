@@ -22,6 +22,7 @@ import (
 )
 
 // SubCommand a represents a sub-command in the command-line interface.
+// SubCommand 表示命令行界面中的子命令，如dgraph alpha
 type SubCommand struct {
 	Cmd  *cobra.Command
 	Conf *viper.Viper

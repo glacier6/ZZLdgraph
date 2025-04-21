@@ -54,11 +54,11 @@ func SentryOptOutNote() {
 func InitSentry(ee bool) {
 	env = "prod-"
 	dsn = dsnProd
-	if DevVersion() {
+	if DevVersion() { //如果是开发版本
 		dsn = dsnDevtest
 		env = "dev-"
 	}
-	if ee {
+	if ee { //如果是企业版
 		env += "enterprise"
 	} else {
 		env += "oss"

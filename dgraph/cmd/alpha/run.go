@@ -71,6 +71,7 @@ var (
 	startTime = time.Now()
 
 	// Alpha is the sub-command invoked when running "dgraph alpha".
+	// Alpha是运行“dgraph-Alpha”时调用的子命令。
 	Alpha x.SubCommand
 
 	// need this here to refer it in admin_backup.go
@@ -103,20 +104,27 @@ they form a Raft group and provide synchronous replication.
 	// If you change any of the flags below, you must also update run() to call Alpha.Conf.Get
 	// with the flag name so that the values are picked up by Cobra/Viper's various config inputs
 	// (e.g, config file, env vars, cli flags, etc.)
-	flag := Alpha.Cmd.Flags()
+	// 如果你更改了下面的任何标志，你还必须更新run（）以调用Alpha。Conf.使用标志名称获取，以便Cobra/Viper的各种配置输入（例如配置文件、环境变量、cli标志等）获取值
+	flag := Alpha.Cmd.Flags() // NOTE:核心论点，创建命令行解析对象，且全部存储在Alpha.Cmd.flags内
+	// flag.String(), Bool(), Int()等函数注册flag
+	// flag.Parse()函数解析在命令行使用了的flag。
+	// 后面有关flag的都不用看了，只需知道flag是做CLI语法解析的就行
 
-	// common
+	// common ，填充ZERO与flag共有的一些解析语句
 	x.FillCommonFlags(flag)
 	// --tls SuperFlag
 	x.RegisterServerTLSFlags(flag)
 	// --encryption and --vault Superflag
 	ee.RegisterAclAndEncFlags(flag)
 
-	flag.StringP("postings", "p", "p", "Directory to store posting lists.")
-	flag.String("tmp", "t", "Directory to store temporary buffers.")
+	// String函数定义了三个参数依次为一个CLI参数的 name（如常用的help）、 默认值和用法的CLI参数。
+	// 返回值是存储标志值的字符串变量的地址。
+	// StringP类似于String，但接受一个可以在单个破折号后使用的简写字母。
+	flag.StringP("postings", "p", "p", "Directory to store posting lists.") // 用于存储发布列表的目录
+	flag.String("tmp", "t", "Directory to store temporary buffers.") // 用于存储临时缓冲区的目录
 
-	flag.StringP("wal", "w", "w", "Directory to store raft write-ahead logs.")
-	flag.String("export", "export", "Folder in which to store exports.")
+	flag.StringP("wal", "w", "w", "Directory to store raft write-ahead logs.") // 存储RAFT的WAL的目录地址
+	flag.String("export", "export", "Folder in which to store exports.") // 用于存储导出的文件夹。
 	flag.StringP("zero", "z", fmt.Sprintf("localhost:%d", x.PortZeroGrpc),
 		"Comma separated list of Dgraph Zero addresses of the form IP_ADDRESS:PORT.")
 
@@ -630,9 +638,12 @@ func setupServer(closer *z.Closer) {
 func run() {
 	var err error
 
+	// SuperFlag是超级标志（CLI中用），其内会包含很多子标志，如telemetry，badger，cache等等都是超级标志
+	// 而telemetry控制的是将监控数据发送给Dgraph开发人员。
 	telemetry := z.NewSuperFlag(Alpha.Conf.GetString("telemetry")).MergeAndCheckDefault(
 		x.TelemetryDefaults)
-	if telemetry.GetBool("sentry") {
+	// Sentry是一个开源的应用性能监控（APM）和错误追踪平台
+	if telemetry.GetBool("sentry") { //如果使用性能监控
 		x.InitSentry(enc.EeBuild)
 		defer x.FlushSentry()
 		x.ConfigureSentryScope("alpha")
@@ -642,30 +653,30 @@ func run() {
 
 	bindall = Alpha.Conf.GetBool("bindall")
 	cache := z.NewSuperFlag(Alpha.Conf.GetString("cache")).MergeAndCheckDefault(
-		worker.CacheDefaults)
-	totalCache := cache.GetInt64("size-mb")
+		worker.CacheDefaults)  //得到cache的配置项
+	totalCache := cache.GetInt64("size-mb") // 得到配置分得的总cache大小
 	x.AssertTruef(totalCache >= 0, "ERROR: Cache size must be non-negative")
 
-	cachePercentage := cache.GetString("percentage")
+	cachePercentage := cache.GetString("percentage") // 得到缓存占比配置的字符串
 	deleteOnUpdates := cache.GetBool("delete-on-updates")
-	cachePercent, err := x.GetCachePercentages(cachePercentage, 3)
+	cachePercent, err := x.GetCachePercentages(cachePercentage, 3) // 解析出来得到百分比切片
 	x.Check(err)
-	postingListCacheSize := (cachePercent[0] * (totalCache << 20)) / 100
-	pstoreBlockCacheSize := (cachePercent[1] * (totalCache << 20)) / 100
-	pstoreIndexCacheSize := (cachePercent[2] * (totalCache << 20)) / 100
+	postingListCacheSize := (cachePercent[0] * (totalCache << 20)) / 100 // 得到postingList的cache大小
+	pstoreBlockCacheSize := (cachePercent[1] * (totalCache << 20)) / 100 // 得到Badger块缓存的cache大小
+	pstoreIndexCacheSize := (cachePercent[2] * (totalCache << 20)) / 100 // 得到Badger索引缓存的cache大小
 
 	cacheOpts := fmt.Sprintf("blockcachesize=%d; indexcachesize=%d; ",
 		pstoreBlockCacheSize, pstoreIndexCacheSize)
 	bopts := badger.DefaultOptions("").FromSuperFlag(worker.BadgerDefaults + cacheOpts).
-		FromSuperFlag(Alpha.Conf.GetString("badger"))
+		FromSuperFlag(Alpha.Conf.GetString("badger")) // 得到badger的总配置项
 	security := z.NewSuperFlag(Alpha.Conf.GetString("security")).MergeAndCheckDefault(
-		worker.SecurityDefaults)
+		worker.SecurityDefaults) // 得到有关安全的超级标志
 	conf := audit.GetAuditConf(Alpha.Conf.GetString("audit"))
 
 	x.Config.Limit = z.NewSuperFlag(Alpha.Conf.GetString("limit")).MergeAndCheckDefault(
-		worker.LimitDefaults)
+		worker.LimitDefaults)  //设置各种最大值，比如 允许并发处理的最大请求数量 ，查询中可以返回的最大边数等等
 
-	opts := worker.Options{
+	opts := worker.Options{ 
 		PostingDir:      Alpha.Conf.GetString("postings"),
 		WALDir:          Alpha.Conf.GetString("wal"),
 		CacheMb:         totalCache,
@@ -682,6 +693,7 @@ func run() {
 	keys, err := ee.GetKeys(Alpha.Conf)
 	x.Check(err)
 
+	// 下面是有关访问控制列表ACL的，也暂时先不看
 	if keys.AclSecretKey != nil {
 		opts.AclJwtAlg = keys.AclJwtAlg
 		opts.AclSecretKey = keys.AclSecretKey
@@ -691,6 +703,7 @@ func run() {
 		glog.Info("ACL secret key loaded successfully.")
 	}
 
+	//下面是依照限制的设置，来设置WORKER的工作模式
 	abortDur := x.Config.Limit.GetDuration("txn-abort-after")
 	switch strings.ToLower(x.Config.Limit.GetString("mutations")) {
 	case "allow":
@@ -704,18 +717,19 @@ func run() {
 		os.Exit(1)
 	}
 
-	worker.SetConfiguration(&opts)
+	worker.SetConfiguration(&opts) //给worker设置配置项
 
-	ips, err := getIPsFromString(security.GetString("whitelist"))
+	ips, err := getIPsFromString(security.GetString("whitelist")) //得到白名单的IP地址切片
 	x.Check(err)
-
+	
+	// 下面是使用tls确保集群端口连接安全的，也不用看
 	tlsClientConf, err := x.LoadClientTLSConfigForInternalPort(Alpha.Conf)
 	x.Check(err)
 	tlsServerConf, err := x.LoadServerTLSConfigForInternalPort(Alpha.Conf)
 	x.Check(err)
 
-	raft := z.NewSuperFlag(Alpha.Conf.GetString("raft")).MergeAndCheckDefault(worker.RaftDefaults)
-	x.WorkerConfig = x.WorkerOptions{
+	raft := z.NewSuperFlag(Alpha.Conf.GetString("raft")).MergeAndCheckDefault(worker.RaftDefaults) //构造raft的超级标志
+	x.WorkerConfig = x.WorkerOptions{  // 集成上面得到的所有配置项，生成worker用的全局配置对象
 		TmpDir:              Alpha.Conf.GetString("tmp"),
 		ExportPath:          Alpha.Conf.GetString("export"),
 		ZeroAddr:            strings.Split(Alpha.Conf.GetString("zero"), ","),
@@ -740,12 +754,14 @@ func run() {
 	}
 
 	// Set the directory for temporary buffers.
+	// 设置临时缓冲区的目录。
 	z.SetTmpDir(x.WorkerConfig.TmpDir)
 
 	x.WorkerConfig.EncryptionKey = keys.EncKey
 
+	// 下面是设置全局配置？
 	setupCustomTokenizers()
-	x.Config.PortOffset = Alpha.Conf.GetInt("port_offset")
+	x.Config.PortOffset = Alpha.Conf.GetInt("port_offset")  //这行是得到CLI中配置的值（或者默认值） TODO:看到这里了
 	x.Config.LimitMutationsNquad = int(x.Config.Limit.GetInt64("mutations-nquad"))
 	x.Config.LimitQueryEdge = x.Config.Limit.GetUint64("query-edge")
 	x.Config.BlockClusterWideDrop = x.Config.Limit.GetBool("disallow-drop")

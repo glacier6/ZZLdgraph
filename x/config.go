@@ -74,6 +74,7 @@ type Options struct {
 }
 
 // Config stores the global instance of this package's options.
+// Config存储此包配置的全局实例。
 var Config Options
 
 // IPRange represents an IP range.
@@ -147,6 +148,7 @@ type WorkerOptions struct {
 }
 
 // WorkerConfig stores the global instance of the worker package's options.
+// WorkerConfig存储worker包选项的全局实例。
 var WorkerConfig WorkerOptions
 
 func (w *WorkerOptions) Parse(conf *viper.Viper) {

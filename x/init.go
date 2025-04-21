@@ -100,6 +100,7 @@ var versionRe *regexp.Regexp = regexp.MustCompile(`-g[[:xdigit:]]{7,}`)
 
 // DevVersion returns true if the version string contains the above pattern
 // e.g.
+// 如果版本字符串包含下述，DevVersion将返回true
 //  1. v2.0.0-rc1-127-gd20a768b3 => dev version
 //  2. v2.0.0 => prod version
 func DevVersion() (matched bool) {

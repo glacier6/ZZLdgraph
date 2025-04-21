@@ -37,8 +37,10 @@ const (
 // Options contains options for the Dgraph server.
 type Options struct {
 	// PostingDir is the path to the directory storing the postings..
+	// PostingDir是存储posting的目录的路径。
 	PostingDir string
 	// WALDir is the path to the directory storing the write-ahead log.
+	// WALDir是存储预写日志的目录的路径。
 	WALDir string
 	// MutationsMode is the mode used to handle mutation requests.
 	MutationsMode int
