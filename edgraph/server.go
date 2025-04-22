@@ -1280,7 +1280,7 @@ var maxPendingQueries int64
 var serverOverloadErr = errors.New("429 Too Many Requests. Please throttle your requests")
 
 func Init() {
-	maxPendingQueries = x.Config.Limit.GetInt64("max-pending-queries")
+	maxPendingQueries = x.Config.Limit.GetInt64("max-pending-queries") //设置最大等待查询数
 }
 
 func (s *Server) doQuery(ctx context.Context, req *Request) (resp *api.Response, rerr error) {

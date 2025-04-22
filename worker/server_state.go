@@ -57,20 +57,23 @@ const (
 )
 
 // ServerState holds the state of the Dgraph server.
+// ServerState保存了Dgraph服务器的状态。
 type ServerState struct {
 	FinishCh chan struct{} // channel to wait for all pending reqs to finish.
 
-	Pstore   *badger.DB
-	WALstore *raftwal.DiskStorage
+	Pstore   *badger.DB // posting list存储对象（即badger）
+	WALstore *raftwal.DiskStorage // WALstore存储对象（即RAFT的那个日志）
 	gcCloser *z.Closer // closer for valueLogGC
 
 	needTs chan tsReq
 }
 
 // State is the instance of ServerState used by the current server.
+//State是当前服务器使用的ServerState的实例对象。
 var State ServerState
 
 // InitServerState initializes this server's state.
+//InitServerState初始化此服务器的状态。
 func InitServerState() {
 	Config.validate()
 

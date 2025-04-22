@@ -639,8 +639,9 @@ func run() {
 	var err error
 
 	// SuperFlag是超级标志（CLI中用），其内会包含很多子标志，如telemetry，badger，cache等等都是超级标志
+	// 超级标志的一般语法如下： --<super-flag-name> option-a=value; option-b=value
 	// 而telemetry控制的是将监控数据发送给Dgraph开发人员。
-	telemetry := z.NewSuperFlag(Alpha.Conf.GetString("telemetry")).MergeAndCheckDefault(
+	telemetry := z.NewSuperFlag(Alpha.Conf.GetString("telemetry")).MergeAndCheckDefault(  // 而NewSuperFlag就是把CLI的超级标志字符串解析成可以使用的对象
 		x.TelemetryDefaults)
 	// Sentry是一个开源的应用性能监控（APM）和错误追踪平台
 	if telemetry.GetBool("sentry") { //如果使用性能监控
@@ -670,7 +671,7 @@ func run() {
 	bopts := badger.DefaultOptions("").FromSuperFlag(worker.BadgerDefaults + cacheOpts).
 		FromSuperFlag(Alpha.Conf.GetString("badger")) // 得到badger的总配置项
 	security := z.NewSuperFlag(Alpha.Conf.GetString("security")).MergeAndCheckDefault(
-		worker.SecurityDefaults) // 得到有关安全的超级标志
+		worker.SecurityDefaults) // 解析CLI输入的超级标志字符串中解析得到有关安全的超级标志
 	conf := audit.GetAuditConf(Alpha.Conf.GetString("audit"))
 
 	x.Config.Limit = z.NewSuperFlag(Alpha.Conf.GetString("limit")).MergeAndCheckDefault(
@@ -759,9 +760,9 @@ func run() {
 
 	x.WorkerConfig.EncryptionKey = keys.EncKey
 
-	// 下面是设置全局配置？
+	// 下面是在x.Config对象内设置全局配置（很多配置基本都来自Alpha对象，该对象内存着在CLI中运行时配置的各个参数）
 	setupCustomTokenizers()
-	x.Config.PortOffset = Alpha.Conf.GetInt("port_offset")  //这行是得到CLI中配置的值（或者默认值） TODO:看到这里了
+	x.Config.PortOffset = Alpha.Conf.GetInt("port_offset")  //这行是得到CLI中配置的值（或者默认值）
 	x.Config.LimitMutationsNquad = int(x.Config.Limit.GetInt64("mutations-nquad"))
 	x.Config.LimitQueryEdge = x.Config.Limit.GetUint64("query-edge")
 	x.Config.BlockClusterWideDrop = x.Config.Limit.GetBool("disallow-drop")
@@ -785,7 +786,7 @@ func run() {
 			return
 		}
 	}
-	edgraph.Init()
+	edgraph.Init() // 里面只做了 设置最大等待查询数 这一个操作
 
 	// feature flags
 	featureFlagsConf := z.NewSuperFlag(Alpha.Conf.GetString("feature-flags")).MergeAndCheckDefault(
@@ -797,8 +798,8 @@ func run() {
 	glog.Infof("x.WorkerConfig: %+v", x.WorkerConfig)
 	glog.Infof("worker.Config: %+v", worker.Config)
 
-	worker.InitServerState()
-	worker.InitTasks()
+	worker.InitServerState() // 初始化worker的状态
+	worker.InitTasks() // 初始化worker的全局任务列表对象
 
 	if Alpha.Conf.GetBool("expose_trace") {
 		// TODO: Remove this once we get rid of event logs.
@@ -813,14 +814,17 @@ func run() {
 
 	// Posting will initialize index which requires schema. Hence, initialize
 	// schema before calling posting.Init().
-	schema.Init(worker.State.Pstore)
-	posting.Init(worker.State.Pstore, postingListCacheSize, deleteOnUpdates)
+	// Posting的初始化需要schema。因此，在调用posting之前初始化schema。Init（）。
+	schema.Init(worker.State.Pstore) // 按照在BadgerDB中已有数据初始化schema
+	posting.Init(worker.State.Pstore, postingListCacheSize, deleteOnUpdates) // 初始化PostingList
 	defer posting.Cleanup()
-	worker.Init(worker.State.Pstore)
+	worker.Init(worker.State.Pstore) //初始化worker
 
 	// setup shutdown os signal handler
+	// 设置关闭操作系统信号处理程序
 	sdCh := make(chan os.Signal, 3)
 
+	// zzlTODO:看到这里了
 	defer func() {
 		signal.Stop(sdCh)
 		close(sdCh)

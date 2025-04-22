@@ -92,10 +92,13 @@ func (*grpcWorker) TaskStatus(ctx context.Context, req *pb.TaskStatusRequest,
 var (
 	// Tasks is a global persistent task queue.
 	// Do not use this before calling InitTasks.
+	//任务是一个全局持久任务队列。
+	//在调用InitTasks之前不要使用它。
 	Tasks *tasks
 )
 
 // InitTasks initializes the global Tasks variable.
+//InitTasks初始化全局Tasks变量。
 func InitTasks() {
 	path := filepath.Join(x.WorkerConfig.TmpDir, "tasks.buf")
 	log, err := z.NewTreePersistent(path)

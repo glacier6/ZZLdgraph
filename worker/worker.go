@@ -56,6 +56,7 @@ func workerPort() int {
 }
 
 // Init initializes this package.
+// Init初始化此包。
 func Init(ps *badger.DB) {
 	pstore = ps
 	// needs to be initialized after group config
