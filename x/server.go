@@ -48,7 +48,7 @@ func startServers(m cmux.CMux, tlsConf *tls.Config) {
 		// monitoring tools which operate without authentication.
 		return strings.HasPrefix(path, "/health")
 	})
-	go startListen(httpRule)
+	go startListen(httpRule) //在这里面，执行了http.server函数，开始监听http请求
 
 	// if tls is enabled, make tls encryption based connections as default
 	if tlsConf != nil {
@@ -67,7 +67,7 @@ func startListen(l net.Listener) {
 		ReadHeaderTimeout: 60 * time.Second,
 	}
 
-	err := srv.Serve(l)
+	err := srv.Serve(l) //执行http.server函数，开始利用前面注册的http.handle进行监听
 	glog.Errorf("Stopped taking more http(s) requests. Err: %v", err)
 	ctx, cancel := context.WithTimeout(context.Background(), 630*time.Second)
 	defer cancel()

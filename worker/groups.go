@@ -70,6 +70,8 @@ func groups() *groupi {
 // and either start or restart RAFT nodes.
 // This function triggers RAFT nodes to be created, and is the entrance to the RAFT
 // world from main.go.
+// StartRaftNodes将读取WAL目录，创建RAFT组，并启动或重新启动RAFT节点。
+// 此函数触发创建RAFT节点，是从main.go进入RAFT世界的入口。
 func StartRaftNodes(walStore *raftwal.DiskStorage, bindall bool) {
 	if x.WorkerConfig.MyAddr == "" {
 		x.WorkerConfig.MyAddr = fmt.Sprintf("localhost:%d", workerPort())

@@ -363,6 +363,7 @@ func RefreshACLs(ctx context.Context) {
 }
 
 // SubscribeForAclUpdates subscribes for ACL predicates and updates the acl cache.
+// SubscribeForAclUpdates订阅ACL谓词并更新ACL缓存。
 func SubscribeForAclUpdates(closer *z.Closer) {
 	defer func() {
 		glog.Infoln("RefreshAcls closed")
@@ -428,6 +429,7 @@ var aclPrefixes = [][]byte{
 }
 
 // upserts the Groot account.
+// 更新管理员账户
 func InitializeAcl(closer *z.Closer) {
 	defer func() {
 		glog.Infof("InitializeAcl closed")

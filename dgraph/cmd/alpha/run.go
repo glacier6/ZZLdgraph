@@ -500,13 +500,15 @@ func setupServer(closer *z.Closer) {
 		laddr = "0.0.0.0"
 	}
 
-	tlsCfg, err := x.LoadServerTLSConfig(Alpha.Conf)
+	tlsCfg, err := x.LoadServerTLSConfig(Alpha.Conf) //加载安全协议tls的配置
 	if err != nil {
 		log.Fatalf("Failed to setup TLS: %v\n", err)
 	}
 
-	//下面是定义两个监听器
+	//下面是定义两个监听器（当前只建立了监听器net.Listener，没有server，server在下面的那两个协程里面），监听TCP连接，setupListener第一个参数是地址，第二个是监听的端口号
 	httpListener, err := setupListener(laddr, httpPort())
+	// http.Handle("/test", myHandler{})
+	// http.ListenAndServe(":8080", nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -516,15 +518,15 @@ func setupServer(closer *z.Closer) {
 		log.Fatal(err)
 	}
 
-	baseMux := http.NewServeMux()
 	// ServeMux 本质上是一个 HTTP 请求路由器（或者叫多路复用器，Multiplexor）。它把收到的请求与一组预先定义的 URL 路径列表做对比，然后在匹配到路径的时候调用关联的处理器（Handler）。
-	http.Handle("/", audit.AuditRequestHttp(baseMux))
+	baseMux := http.NewServeMux()
 	// http.Handle 用于将一个实现了 http.Handler 接口的对象注册到指定的 URL 路径前缀上，当有匹配该路径前缀的 HTTP 请求到来时，会调用该对象的 ServeHTTP 方法进行处理。
-
-	//NOTE:核心操作，以下均是
+	http.Handle("/", audit.AuditRequestHttp(baseMux))
+	
+	//NOTE:核心操作，以下均是，将各个处理函数绑定到多路复用器上对应请求路径上
 	baseMux.HandleFunc("/query", queryHandler)  //查询
 	baseMux.HandleFunc("/query/", queryHandler)
-	baseMux.HandleFunc("/mutate", mutationHandler) //更改
+	baseMux.HandleFunc("/mutate", mutationHandler) //突变
 	baseMux.HandleFunc("/mutate/", mutationHandler)
 	baseMux.HandleFunc("/commit", commitHandler)
 	baseMux.HandleFunc("/alter", alterHandler)
@@ -542,16 +544,28 @@ func setupServer(closer *z.Closer) {
 	// It's is just an atomic counter used by the graphql subscription to update its state.
 	// It's is used to detect the schema changes and server exit.
 	// It is also reported by /probe/graphql endpoint as the schemaUpdateCounter.
+	// Global Epoch是graphql服务的无锁同步机制。
+	// 它只是graphql订阅用来更新其状态的原子计数器。
+	// 它用于检测schema更改和服务器退出。
+	// 它也被/probe/graphql端点报告为schemaUpdateCounter。
 
 	// Implementation for schema change:
 	// The global epoch is incremented when there is a schema change.
 	// Polling goroutine acquires the current epoch count as a local epoch.
 	// The local epoch count is checked against the global epoch,
 	// If there is change then we terminate the subscription.
+	// schema更改的实现：
+	// 当schema发生变化时，GlobalEpoch会递增。
+	// 轮询goroutine获取当前epoch计数作为本地epoch。
+	// 将局部epoch计数与全局历元进行核对，
+	// 如果有变化，我们将终止订阅。
 
 	// Implementation for server exit:
 	// The global epoch is set to maxUint64 while exiting the server.
 	// By using this information polling goroutine terminates the subscription.
+	// 服务器退出实现：
+	// 退出服务器时，GlobalEpoch设置为maxUint64。
+	// 通过使用此信息轮询，goroutine终止订阅。
 	globalEpoch := make(map[uint64]*uint64)
 	e := new(uint64)
 	atomic.StoreUint64(e, 0)
@@ -597,9 +611,10 @@ func setupServer(closer *z.Closer) {
 	baseMux.Handle("/ui/keywords", http.HandlerFunc(keywordHandler))
 
 	// Initialize the servers.
+	// 初始化服务器，开启两个协程去监听http与GRPC
 	x.ServerCloser.AddRunning(3)
-	go serveGRPC(grpcListener, tlsCfg, x.ServerCloser)
-	go x.StartListenHttpAndHttps(httpListener, tlsCfg, x.ServerCloser)
+	go serveGRPC(grpcListener, tlsCfg, x.ServerCloser) //监听GRPC请求
+	go x.StartListenHttpAndHttps(httpListener, tlsCfg, x.ServerCloser)//监听http请求，貌似上面注册的链接会因为HTTP包内部的操作默认放到http内部上？
 
 	go func() {
 		defer x.ServerCloser.Done()
@@ -818,13 +833,13 @@ func run() {
 	schema.Init(worker.State.Pstore) // 按照在BadgerDB中已有数据初始化schema
 	posting.Init(worker.State.Pstore, postingListCacheSize, deleteOnUpdates) // 初始化PostingList
 	defer posting.Cleanup()
-	worker.Init(worker.State.Pstore) //初始化worker
+	worker.Init(worker.State.Pstore) //初始化worker，里面主要是对worker的gRPC进行初始化
 
 	// setup shutdown os signal handler
 	// 设置关闭操作系统信号处理程序
 	sdCh := make(chan os.Signal, 3)
 
-	// zzlTODO:看到这里了
+	// 下面这一块是开启监听关闭的协程（如在命令行按ctrl+c ？）
 	defer func() {
 		signal.Stop(sdCh)
 		close(sdCh)
@@ -857,11 +872,12 @@ func run() {
 
 	updaters := z.NewCloser(2)
 	go func() {
-		worker.StartRaftNodes(worker.State.WALstore, bindall)
+		worker.StartRaftNodes(worker.State.WALstore, bindall) // NOTE:核心操作，使当前的worker进入Raft的
 		atomic.AddUint32(&initDone, 1)
 
 		// initialization of the admin account can only be done after raft nodes are running
 		// and health check passes
+		//只有在raft节点运行并且健康检查通过后，才能初始化管理员帐户
 		edgraph.InitializeAcl(updaters)
 		edgraph.RefreshACLs(updaters.Ctx())
 		edgraph.SubscribeForAclUpdates(updaters)
@@ -869,14 +885,18 @@ func run() {
 
 	// Graphql subscribes to alpha to get schema updates. We need to close that before we
 	// close alpha. This closer is for closing and waiting that subscription.
+	// Graphql订阅alpha以获取模式更新。我们需要在关闭alpha之前关闭它。此封隔器用于关闭并等待订阅。
 	adminCloser := z.NewCloser(1)
 
 	setupServer(adminCloser) //NOTE:核心操作，绑定服务处理函数
 	glog.Infoln("GRPC and HTTP stopped.")
 
+	//下面都是有关各种关闭的 
+
 	// This might not close until group is given the signal to close. So, only signal here,
 	// wait for it after group is closed.
-	updaters.Signal()
+	// 在组收到关闭信号之前，这可能不会关闭。所以，这里只有信号，请在小组关闭后等待
+	updaters.Signal() 
 
 	worker.BlockingStop()
 	glog.Infoln("worker stopped.")
