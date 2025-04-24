@@ -493,7 +493,7 @@ func serveGRPC(l net.Listener, tlsCfg *tls.Config, closer *z.Closer) {
 }
 
 func setupServer(closer *z.Closer) {
-	go worker.RunServer(bindall) // For pb.communication.
+	go worker.RunServer(bindall) // NOTE:核心操作，worker开始监听其他worker或raft方面的通信请求
 
 	laddr := "localhost"
 	if bindall {

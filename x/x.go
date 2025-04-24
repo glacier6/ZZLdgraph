@@ -518,20 +518,22 @@ func AttachAuthToken(ctx context.Context, r *http.Request) context.Context {
 }
 
 // AttachAccessJwt adds any incoming JWT header data into the grpc context metadata
+// AttachAccessJwt将任何传入的JWT标头数据添加到grpc上下文元数据中
 func AttachAccessJwt(ctx context.Context, r *http.Request) context.Context {
 	if accessJwt := r.Header.Get("X-Dgraph-AccessToken"); accessJwt != "" {
-		md, ok := metadata.FromIncomingContext(ctx)
+		md, ok := metadata.FromIncomingContext(ctx) //获取当前上下文的metadata对象（注意metadata对象是一个map，key必为string，v可以是String，也可以是二进制数据）
 		if !ok {
-			md = metadata.New(nil)
+			md = metadata.New(nil) //没找到就创建新的
 		}
 
-		md.Append("accessJwt", accessJwt)
-		ctx = metadata.NewIncomingContext(ctx, md)
+		md.Append("accessJwt", accessJwt) //在当前上下文增加JWT验证
+		ctx = metadata.NewIncomingContext(ctx, md) // NewIncomingContext创建一个附加传入md的新上下文。调用此函数后，不得修改md。
 	}
 	return ctx
 }
 
 // AttachRemoteIP adds any incoming IP data into the grpc context metadata
+// AttachRemoteIP将任何传入的IP数据添加到grpc上下文元数据中
 func AttachRemoteIP(ctx context.Context, r *http.Request) context.Context {
 	if ip, port, err := net.SplitHostPort(r.RemoteAddr); err == nil {
 		if intPort, convErr := strconv.Atoi(port); convErr == nil {

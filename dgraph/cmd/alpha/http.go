@@ -70,6 +70,7 @@ func commonHandler(w http.ResponseWriter, r *http.Request) bool {
 }
 
 // Read request body, transparently decompressing if necessary. Return nil on error.
+// 读取请求正文，必要时透明解压缩。出错时返回nil。
 func readRequest(w http.ResponseWriter, r *http.Request) []byte {
 	var in io.Reader = r.Body
 
@@ -115,6 +116,7 @@ func parseUint64(r *http.Request, name string) (uint64, error) {
 
 // parseBool reads the value for given URL parameter from request and
 // parses it into bool, empty string is converted into zero value
+// parseBool从请求中读取给定URL参数的值，并将其解析为bool，空字符串转换为零值
 func parseBool(r *http.Request, name string) (bool, error) {
 	value := r.URL.Query().Get(name)
 	if value == "" {
@@ -131,6 +133,7 @@ func parseBool(r *http.Request, name string) (bool, error) {
 
 // parseDuration reads the value for given URL parameter from request and
 // parses it into time.Duration, empty string is converted into zero value
+// parseDuration从请求中读取给定URL参数的值，并将其解析为时间。持续时间，空字符串转换为零值
 func parseDuration(r *http.Request, name string) (time.Duration, error) {
 	value := r.URL.Query().Get(name)
 	if value == "" {
@@ -161,65 +164,68 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 		x.SetStatus(w, x.ErrorInvalidRequest, err.Error())
 		return
 	}
-	queryTimeout, err := parseDuration(r, "timeout")
+	queryTimeout, err := parseDuration(r, "timeout") //获取超时时间
 	if err != nil {
 		x.SetStatus(w, x.ErrorInvalidRequest, err.Error())
 		return
 	}
 	startTs, err := parseUint64(r, "startTs")
-	hash := r.URL.Query().Get("hash")
+	hash := r.URL.Query().Get("hash") // 也是获取URL中的查询参数
 	if err != nil {
 		x.SetStatus(w, x.ErrorInvalidRequest, err.Error())
 		return
 	}
 
-	body := readRequest(w, r)
+	body := readRequest(w, r) //解析出来请求的body，此时是JSON 格式的字节切片
 	if body == nil {
 		return
 	}
 
 	var params struct {
-		Query     string            `json:"query"`
+		Query     string            `json:"query"`   // 查询体
 		Variables map[string]string `json:"variables"`
 	}
 
 	contentType := r.Header.Get("Content-Type")
-	mediaType, contentTypeParams, err := mime.ParseMediaType(contentType)
+	mediaType, contentTypeParams, err := mime.ParseMediaType(contentType) // 解析请求头的Content-Type，判断出来是什么类型的请求（JSON或Graphql+-或DQL）
 	if err != nil {
 		x.SetStatus(w, x.ErrorInvalidRequest, "Invalid Content-Type")
 	}
-	if charset, ok := contentTypeParams["charset"]; ok && strings.ToLower(charset) != "utf-8" {
+	if charset, ok := contentTypeParams["charset"]; ok && strings.ToLower(charset) != "utf-8" { //判断请求的编码格式是utf-8，否则返回不支持
 		x.SetStatus(w, x.ErrorInvalidRequest, "Unsupported charset. "+
 			"Supported charset is UTF-8")
 		return
 	}
 
+	// 下面是根据请求的格式填充params对象
 	switch mediaType {
 	case "application/json":
 		if err := json.Unmarshal(body, &params); err != nil {
+			// `json.Marshal` 用于将 Go 对象转换为 JSON 格式的字节切片。
+			// `json.Unmarshal` 用于将 第一个参数的JSON 格式的字节切片解码为对应的 Go 对象，放在第二个参数params里。
 			jsonErr := convertJSONError(string(body), err)
 			x.SetStatus(w, x.ErrorInvalidRequest, jsonErr.Error())
 			return
 		}
 	case "application/graphql+-", "application/dql":
-		params.Query = string(body)
+		params.Query = string(body)  //直接转为字符串然后放进去就行
 	default:
 		x.SetStatus(w, x.ErrorInvalidRequest, "Unsupported Content-Type. "+
 			"Supported content types are application/json, application/graphql+-,application/dql")
 		return
 	}
 
-	ctx := context.WithValue(r.Context(), query.DebugKey, isDebugMode)
-	ctx = x.AttachAccessJwt(ctx, r)
-	ctx = x.AttachRemoteIP(ctx, r)
+	ctx := context.WithValue(r.Context(), query.DebugKey, isDebugMode)  // 在请求上下文中加入 是否是debug 的标识
+	ctx = x.AttachAccessJwt(ctx, r) // 在请求上下文中加入JWT
+	ctx = x.AttachRemoteIP(ctx, r) // 在请求上下文中加入解析出来的发出请求的主机的IP与Port
 
 	if queryTimeout != 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, queryTimeout)
+		ctx, cancel = context.WithTimeout(ctx, queryTimeout)  //在上下文中设置超时时间
 		defer cancel()
 	}
 
-	req := api.Request{ //构建一个请求对象
+	req := api.Request{ //构建一个新的，内部用的请求对象
 		Vars:    params.Variables,
 		Query:   params.Query,
 		StartTs: startTs,
@@ -228,17 +234,19 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 
 	if req.StartTs == 0 {
 		// If be is set, run this as a best-effort query.
+		// 如果设置了be，则将其作为尽力而为的查询运行。
 		isBestEffort, err := parseBool(r, "be")
 		if err != nil {
 			x.SetStatus(w, x.ErrorInvalidRequest, err.Error())
 			return
 		}
-		if isBestEffort {
+		if isBestEffort { //设置一些标志
 			req.BestEffort = true
 			req.ReadOnly = true
 		}
 
 		// If ro is set, run this as a readonly query.
+		// 如果设置了ro，请将其作为只读查询运行。
 		isReadOnly, err := parseBool(r, "ro")
 		if err != nil {
 			x.SetStatus(w, x.ErrorInvalidRequest, err.Error())
@@ -250,19 +258,20 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// If rdf is set true, then response will be in rdf format.
+	// 如果rdf设置为true，则响应将采用rdf格式。
 	respFormat := r.URL.Query().Get("respFormat")
 	switch respFormat {
 	case "", "json":
-		req.RespFormat = api.Request_JSON
+		req.RespFormat = api.Request_JSON // 设置为 int 0
 	case "rdf":
-		req.RespFormat = api.Request_RDF
+		req.RespFormat = api.Request_RDF //设置为 int 1
 	default:
 		x.SetStatus(w, x.ErrorInvalidRequest, fmt.Sprintf("invalid value [%v] for parameter respFormat", respFormat))
 		return
 	}
 
-	// Core processing happens here.核心处理发生在这里。
-	resp, err := (&edgraph.Server{}).QueryNoGrpc(ctx, &req) // NOTE:核心操作，处理查询
+	// Core processing happens here.核心处理发生在这里。  zzlTODO:看到这里了
+	resp, err := (&edgraph.Server{}).QueryNoGrpc(ctx, &req) // NOTE:核心操作，处理查询（依靠前面生成的上下文对象以及req对象）
 	if err != nil {
 		x.SetStatusWithData(w, x.ErrorInvalidRequest, err.Error())
 		return

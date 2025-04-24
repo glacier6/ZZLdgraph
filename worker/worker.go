@@ -104,6 +104,7 @@ func (w *grpcWorker) Subscribe(
 
 // RunServer initializes a tcp server on port which listens to requests from
 // other workers for pb.communication.
+// RunServer在端口上初始化一个tcp服务器，该服务器监听其他worker对pb.communication的请求。
 func RunServer(bindall bool) {
 	laddr := "localhost"
 	if bindall {
