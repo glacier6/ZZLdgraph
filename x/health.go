@@ -48,6 +48,7 @@ func UpdateDrainingMode(enable bool) {
 // HealthCheck returns whether the server is ready to accept requests or not
 // Load balancer would add the node to the endpoint once health check starts
 // returning true
+// HealthCheck返回服务器是否已准备好接受请求。一旦健康检查开始返回true，负载平衡器就会将节点添加到端点
 func HealthCheck() error {
 	if atomic.LoadUint32(&healthCheck) == 0 {
 		return errHealth

@@ -91,6 +91,7 @@ const (
 	NoAuthorize
 )
 
+// 下面是两个全局变量，用于统计请求的数量
 var (
 	numDQL     uint64
 	numGraphQL uint64
@@ -1104,6 +1105,7 @@ type Request struct {
 	// gqlField is the GraphQL field for which the request is being sent
 	gqlField gqlSchema.Field
 	// doAuth tells whether this request needs ACL authorization or not
+	// doAuth告诉此请求是否需要ACL授权
 	doAuth AuthMode
 }
 
@@ -1246,7 +1248,9 @@ func (s *Server) Query(ctx context.Context, req *api.Request) (*api.Response, er
 // ratel的普通json格式query会到这里，req对象里面有请求体
 func (s *Server) QueryNoGrpc(ctx context.Context, req *api.Request) (*api.Response, error) { //NOTE:核心函数
 	ctx = x.AttachJWTNamespace(ctx)
-	if x.WorkerConfig.AclEnabled && req.GetStartTs() != 0 {
+
+	// 判断是否开启企业ACL功能
+	if x.WorkerConfig.AclEnabled && req.GetStartTs() != 0 { 
 		// A fresh StartTs is assigned if it is 0.
 		// 如果StartTs为0，则分配一个新的StartTs。
 		ns, err := x.ExtractNamespace(ctx)
@@ -1257,12 +1261,15 @@ func (s *Server) QueryNoGrpc(ctx context.Context, req *api.Request) (*api.Respon
 			return nil, x.ErrHashMismatch
 		}
 	}
+
 	// Add a timeout for queries which don't have a deadline set. We don't want to
 	// apply a timeout if it's a mutation, that's currently handled by flag
 	// "txn-abort-after".
-	// 为没有设置截止日期的查询添加超时。如果是突变，我们不想应用超时，目前由标志“txn abort after”处理。
+	// 为没有设置截止日期的查询添加超时。如果是突变，我们不想应用超时，目前由标志“txn-abort-after”处理。
 	if req.GetMutations() == nil && x.Config.QueryTimeout != 0 {
+		// 已判定为查询请求，且全局配置了查询超时时间
 		if d, _ := ctx.Deadline(); d.IsZero() {
+			// 判断出当前请求没有设置超时时间
 			var cancel context.CancelFunc
 			ctx, cancel = context.WithTimeout(ctx, x.Config.QueryTimeout)
 			defer cancel()
@@ -1283,6 +1290,7 @@ func Init() {
 	maxPendingQueries = x.Config.Limit.GetInt64("max-pending-queries") //设置最大等待查询数
 }
 
+// NOTE:下面函数是处理DQL查询以及突变的核心函数
 func (s *Server) doQuery(ctx context.Context, req *Request) (resp *api.Response, rerr error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
@@ -1293,7 +1301,7 @@ func (s *Server) doQuery(ctx context.Context, req *Request) (resp *api.Response,
 	}
 
 	isGraphQL, _ := ctx.Value(IsGraphql).(bool)
-	if isGraphQL { //判断是GraphQL还是DQL
+	if isGraphQL { //判断是GraphQL还是DQL，统计请求的数量
 		atomic.AddUint64(&numGraphQL, 1)
 	} else {
 		atomic.AddUint64(&numDQL, 1)
@@ -1308,18 +1316,18 @@ func (s *Server) doQuery(ctx context.Context, req *Request) (resp *api.Response,
 	// }
 
 	isMutation := len(req.req.Mutations) > 0 //判断是否是突变
-	methodRequest := methodQuery
+	methodRequest := methodQuery // methodRequest是一个字符串，记录是突变还是查询
 	if isMutation {
 		methodRequest = methodMutate
 	}
 
-	var measurements []ostats.Measurement
-	ctx, span := otrace.StartSpan(ctx, methodRequest)
-	if ns, err := x.ExtractNamespace(ctx); err == nil {
+	var measurements []ostats.Measurement  // Measurement是记录统计数据时测量的数值
+	ctx, span := otrace.StartSpan(ctx, methodRequest) // otrace包‌主要用于跟踪和调试Go程序中的函数调用。通过在代码中插入特定的跟踪点，otrace包可以帮助开发者监控函数的调用顺序、参数和返回值
+	if ns, err := x.ExtractNamespace(ctx); err == nil {  // 提取出来请求的namespace，这个变量是标识用户的（每个用户都有自己namespace），把数据进行逻辑隔离，使得每个用户只能看到属于自己的数据
 		annotateNamespace(span, ns)
 	}
 
-	ctx = x.WithMethod(ctx, methodRequest)
+	ctx = x.WithMethod(ctx, methodRequest) //给当前的请求上下文对象添加是查询还是突变的标识
 	defer func() {
 		span.End()
 		v := x.TagValueStatusOK
@@ -1332,13 +1340,13 @@ func (s *Server) doQuery(ctx context.Context, req *Request) (resp *api.Response,
 		ostats.Record(ctx, measurements...)
 	}()
 
-	if rerr = x.HealthCheck(); rerr != nil {
+	if rerr = x.HealthCheck(); rerr != nil { // 判断当前服务器是否允许进行请求操作
 		return
 	}
 
-	req.req.Query = strings.TrimSpace(req.req.Query)
+	req.req.Query = strings.TrimSpace(req.req.Query) // TrimSpace返回字符串s的一个片段，删除所有前导和尾随空格，如Unicode所定义。
 	isQuery := len(req.req.Query) != 0
-	if !isQuery && !isMutation {
+	if !isQuery && !isMutation { // 非查询也非突变，抛出错误
 		span.Annotate(nil, "empty request")
 		return nil, errors.Errorf("empty request")
 	}
@@ -1346,7 +1354,9 @@ func (s *Server) doQuery(ctx context.Context, req *Request) (resp *api.Response,
 	span.AddAttributes(otrace.StringAttribute("Query", req.req.Query))
 	span.Annotatef(nil, "Request received: %v", req.req)
 	if isQuery {
-		ostats.Record(ctx, x.PendingQueries.M(1), x.NumQueries.M(1))
+		//Record同时记录具有相同上下文的一个或多个测量值。
+		//如果上下文中有任何标签，测量值将被标记。
+		ostats.Record(ctx, x.PendingQueries.M(1), x.NumQueries.M(1)) //Measure是记录统计数据时测量的数值。
 		defer func() {
 			measurements = append(measurements, x.PendingQueries.M(-1))
 		}()
@@ -1358,6 +1368,7 @@ func (s *Server) doQuery(ctx context.Context, req *Request) (resp *api.Response,
 	if req.doAuth == NeedAuthorize && x.IsGalaxyOperation(ctx) {
 		// Only the guardian of the galaxy can do a galaxy wide query/mutation. This operation is
 		// needed by live loader.
+		// 只有银河系的守护者才能进行全星系的查询/突变。活装载机需要此操作。666
 		if err := AuthGuardianOfTheGalaxy(ctx); err != nil {
 			s := status.Convert(err)
 			return nil, status.Error(s.Code(),
@@ -1378,6 +1389,7 @@ func (s *Server) doQuery(ctx context.Context, req *Request) (resp *api.Response,
 		return
 	}
 
+	//下面这个if进行授权判断
 	if req.doAuth == NeedAuthorize {
 		if rerr = authorizeRequest(ctx, qc); rerr != nil {
 			return
@@ -1386,14 +1398,17 @@ func (s *Server) doQuery(ctx context.Context, req *Request) (resp *api.Response,
 
 	// We use defer here because for queries, startTs will be
 	// assigned in the processQuery function called below.
+	// 我们在这里使用defer是因为对于查询，startTs将在下面调用的processQuery函数中分配。
 	defer annotateStartTs(qc.span, qc.req.StartTs)
 	// For mutations, we update the startTs if necessary.
+	// 对于突变，如有必要，我们会更新startTs。
 	if isMutation && req.req.StartTs == 0 {
 		start := time.Now()
-		req.req.StartTs = worker.State.GetTimestamp(false)
-		qc.latency.AssignTimestamp = time.Since(start)
+		req.req.StartTs = worker.State.GetTimestamp(false) // 得到一个突变处理的时间戳
+		qc.latency.AssignTimestamp = time.Since(start) // Since返回自t以来经过的时间，记录获取时间戳所花费的时间
 	}
 	if x.WorkerConfig.AclEnabled {
+		// 如果acl启用
 		ns, err := x.ExtractNamespace(ctx)
 		if err != nil {
 			return nil, err
@@ -1407,7 +1422,7 @@ func (s *Server) doQuery(ctx context.Context, req *Request) (resp *api.Response,
 	}
 
 	var gqlErrs error
-	// 
+	// 下面这个if结束后，就已经获取到数据了 zzlTODO:看到这里了，当前函数已看完，需要看下面这个核心的操作内如何做的
 	if resp, rerr = processQuery(ctx, qc); rerr != nil { //NOTE:核心操作，进一步完善和填充queryContext结构体，先是构造 query.Request 结构, 逐步填充这个结构, 然后调用实际业务逻辑的实施者query.Request
 		// if rerr is just some error from GraphQL encoding, then we need to continue the normal
 		// execution ignoring the error as we still need to assign latency info to resp. If we can
@@ -1424,7 +1439,10 @@ func (s *Server) doQuery(ctx context.Context, req *Request) (resp *api.Response,
 	// if it were a mutation, simple or upsert, in any case gqlErrs would be empty as GraphQL JSON
 	// is formed only for queries. So, gqlErrs can have something only in the case of a pure query.
 	// So, safe to ignore gqlErrs and not return that here.
+	//如果它是一个突变，无论是简单的还是意外的，在任何情况下，gqlErrs都是空的，因为GraphQL JSON仅用于查询。因此，gqlErrs只有在纯查询的情况下才能有东西。
+	//因此，可以安全地忽略gqlErrs，而不在此处返回。
 	if rerr = s.doMutate(ctx, qc, resp); rerr != nil {
+		// fmt.Println("进入mutate") 正常请求都不会进入这里
 		return
 	}
 
@@ -1434,8 +1452,8 @@ func (s *Server) doQuery(ctx context.Context, req *Request) (resp *api.Response,
 
 	// TODO(martinmr): Include Transport as part of the latency. Need to do
 	// this separately since it involves modifying the API protos.
-	resp.Latency = &api.Latency{
-		AssignTimestampNs: uint64(l.AssignTimestamp.Nanoseconds()),
+	resp.Latency = &api.Latency{  // Latency统计各种操作所花费的时间，下面就是把查询或突变的时间添加到响应体resp中
+		AssignTimestampNs: uint64(l.AssignTimestamp.Nanoseconds()), // Nanoseconds以整数纳秒计数返回持续时间。
 		ParsingNs:         uint64(l.Parsing.Nanoseconds()),
 		ProcessingNs:      uint64(l.Processing.Nanoseconds()),
 		EncodingNs:        uint64(l.Json.Nanoseconds()),

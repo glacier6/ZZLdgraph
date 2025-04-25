@@ -270,8 +270,9 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Core processing happens here.核心处理发生在这里。  zzlTODO:看到这里了
-	resp, err := (&edgraph.Server{}).QueryNoGrpc(ctx, &req) // NOTE:核心操作，处理查询（依靠前面生成的上下文对象以及req对象）
+	// Core processing happens here.核心处理发生在这里。
+	resp, err := (&edgraph.Server{}).QueryNoGrpc(ctx, &req) // NOTE:核心操作，处理查询以及突变,返回的resp里面已经会包含结果！（依靠前面生成的当前请求的上下文对象ctx以及req对象）
+	// zzlTODO:下面是对返回的信息再进一步填充，暂时不看
 	if err != nil {
 		x.SetStatusWithData(w, x.ErrorInvalidRequest, err.Error())
 		return

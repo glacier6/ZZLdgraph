@@ -97,11 +97,11 @@ import (
 // Latency is used to keep track of the latency involved in parsing and processing
 // the query. It also contains information about the time it took to convert the
 // result into a format(JSON/Protocol Buffer) that the client expects.
-// 延迟用于跟踪解析和处理查询所涉及的延迟。它还包含将结果转换为客户端期望的格式（JSON/协议缓冲区）所需的时间信息。
+// Latency用于跟踪解析和处理查询所涉及的延迟。它还包含将结果转换为客户端期望的格式（JSON/协议缓冲区）所需的时间信息。
 type Latency struct {
 	Start           time.Time     `json:"-"`
 	Parsing         time.Duration `json:"query_parsing"`
-	AssignTimestamp time.Duration `json:"assign_timestamp"`
+	AssignTimestamp time.Duration `json:"assign_timestamp"` // 为当前请求分配时间戳所花费的时间
 	Processing      time.Duration `json:"processing"`
 	Json            time.Duration `json:"json_conversion"`
 }

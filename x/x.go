@@ -266,12 +266,13 @@ func ExtractNamespaceHTTP(r *http.Request) uint64 {
 
 // ExtractNamespace parses the namespace value from the incoming gRPC context. For the non-ACL mode,
 // it is caller's responsibility to set the galaxy namespace.
+// ExtractNamespace从传入的gRPC上下文中解析命名空间值。对于非ACL模式，设置galaxy名称空间是调用者的责任。
 func ExtractNamespace(ctx context.Context) (uint64, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
 		return 0, errors.New("No metadata in the context")
 	}
-	ns := md.Get("namespace")
+	ns := md.Get("namespace") //得到命名空间值
 	if len(ns) == 0 {
 		return 0, errors.New("No namespace in the metadata of context")
 	}
@@ -441,6 +442,7 @@ func ParseRequest(w http.ResponseWriter, r *http.Request, data interface{}) bool
 
 // AttachJWTNamespace attaches the namespace in the JWT claims to the context if present, otherwise
 // it attaches the galaxy namespace.
+// AttachJWTNamespace将JWT声明中的命名空间附加到上下文（如果存在），否则将附加galaxy命名空间。
 func AttachJWTNamespace(ctx context.Context) context.Context {
 	if !WorkerConfig.AclEnabled {
 		return AttachNamespace(ctx, GalaxyNamespace)
