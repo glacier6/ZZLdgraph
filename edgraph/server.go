@@ -1051,7 +1051,7 @@ type queryContext struct {
 	// 解析 req.Mutations 后的突变列表
 	gmuList []*dql.Mutation  
 	// dqlRes contains result of parsing the req.Query
-	// 解析 req.Query 后的结果
+	// dqlRes保存 解析 req.Query 后的结果
 	dqlRes dql.Result 
 	// condVars are conditional variables used in the (modified) query to figure out
 	// whether the condition in Conditional Upsert is true. The string would be empty
@@ -1070,7 +1070,7 @@ type queryContext struct {
 	// 存储 mutation 请求块中使用的变量(从变量名到值)的映射
 	valRes map[string]map[uint64]types.Val
 	// l stores latency numbers
-	// 存储延迟数
+	// 存储各种操作所花费的时间
 	latency *query.Latency
 	// span stores a opencensus span used throughout the query processing
 	// 存储在整个查询处理过程中使用的 opencensus span
@@ -1422,7 +1422,7 @@ func (s *Server) doQuery(ctx context.Context, req *Request) (resp *api.Response,
 	}
 
 	var gqlErrs error
-	// 下面这个if结束后，就已经获取到数据了 zzlTODO:看到这里了，当前函数已看完，需要看下面这个核心的操作内如何做的
+	// 下面这个if结束后，就已经获取到数据了
 	if resp, rerr = processQuery(ctx, qc); rerr != nil { //NOTE:核心操作，进一步完善和填充queryContext结构体，先是构造 query.Request 结构, 逐步填充这个结构, 然后调用实际业务逻辑的实施者query.Request
 		// if rerr is just some error from GraphQL encoding, then we need to continue the normal
 		// execution ignoring the error as we still need to assign latency info to resp. If we can
@@ -1433,7 +1433,7 @@ func (s *Server) doQuery(ctx context.Context, req *Request) (resp *api.Response,
 		if qc.gqlField != nil && x.IsGqlErrorList(rerr) {
 			gqlErrs = rerr
 		} else {
-			return
+			return // 有报错，就立即返回
 		}
 	}
 	// if it were a mutation, simple or upsert, in any case gqlErrs would be empty as GraphQL JSON
@@ -1441,9 +1441,9 @@ func (s *Server) doQuery(ctx context.Context, req *Request) (resp *api.Response,
 	// So, safe to ignore gqlErrs and not return that here.
 	//如果它是一个突变，无论是简单的还是意外的，在任何情况下，gqlErrs都是空的，因为GraphQL JSON仅用于查询。因此，gqlErrs只有在纯查询的情况下才能有东西。
 	//因此，可以安全地忽略gqlErrs，而不在此处返回。
-	if rerr = s.doMutate(ctx, qc, resp); rerr != nil {
+	if rerr = s.doMutate(ctx, qc, resp); rerr != nil {  //NOTE:核心操作，进行突变操作
 		// fmt.Println("进入mutate") 正常请求都不会进入这里
-		return
+		return  // 有报错，就立即返回
 	}
 
 	// TODO(Ahsan): resp.Txn.Preds contain predicates of form gid-namespace|attr.
@@ -1462,10 +1462,11 @@ func (s *Server) doQuery(ctx context.Context, req *Request) (resp *api.Response,
 	return resp, gqlErrs
 }
 
+// NOTE:极为重要的函数，处理DQL查询
 func processQuery(ctx context.Context, qc *queryContext) (*api.Response, error) {
 	resp := &api.Response{}
 	if qc.req.Query == "" {
-		// No query, so make the query cost 0.
+		// No query, so make the query cost 0.无查询体，设置查询花费为0
 		resp.Metrics = &api.Metrics{
 			NumUids: map[string]uint64{"_total": 0},
 		}
@@ -1477,79 +1478,88 @@ func processQuery(ctx context.Context, qc *queryContext) (*api.Response, error) 
 	// 先构造 query.Request 结构，后面的就是在填充这个qr
 	qr := query.Request{
 		Latency:  qc.latency,
-		DqlQuery: &qc.dqlRes,
+		DqlQuery: &qc.dqlRes, //存的是解析sql语句后的结果
 	}
 
 	// Here we try our best effort to not contact Zero for a timestamp. If we succeed,
 	// then we use the max known transaction ts value (from ProcessDelta) for a read-only query.
 	// If we haven't processed any updates yet then fall back to getting TS from Zero.
-	switch {
+	// 在这里，我们尽最大努力不联系Zero获取时间戳。如果我们成功了，
+	// 然后我们使用最大已知事务ts值（来自ProcessDelta）进行只读查询。
+	// 如果我们还没有处理任何更新，那么就从Zero开始获取TS。
+	switch {  //这个Switch设置查询的模式，注意Annotate函数是添加带有属性的注释，属性可以为nil。
 	case qc.req.BestEffort:
-		qc.span.Annotate([]otrace.Attribute{otrace.BoolAttribute("be", true)}, "")
+		qc.span.Annotate([]otrace.Attribute{otrace.BoolAttribute("be", true)}, "") // 最大努力的
 	case qc.req.ReadOnly:
-		qc.span.Annotate([]otrace.Attribute{otrace.BoolAttribute("ro", true)}, "")
+		qc.span.Annotate([]otrace.Attribute{otrace.BoolAttribute("ro", true)}, "") // 只读的
 	default:
-		qc.span.Annotate([]otrace.Attribute{otrace.BoolAttribute("no", true)}, "")
+		qc.span.Annotate([]otrace.Attribute{otrace.BoolAttribute("no", true)}, "") // 默认
 	}
 
-	if qc.req.BestEffort {
+	if qc.req.BestEffort { //如果为最大努力查询， 设置处在 NOTE:20254280
 		// Sanity: check that request is read-only too.
 		if !qc.req.ReadOnly {
-			return resp, errors.Errorf("A best effort query must be read-only.")
+			return resp, errors.Errorf("A best effort query must be read-only.") // 如果设置 最大努力 了，那么就必须是只读的
 		}
-		if qc.req.StartTs == 0 {
-			qc.req.StartTs = posting.Oracle().MaxAssigned()
+		if qc.req.StartTs == 0 { // 如果还未分配开始时间戳
+			qc.req.StartTs = posting.Oracle().MaxAssigned()  // 获取事物的开始时间戳（貌似只是在本地获取时间戳？）
 		}
-		qr.Cache = worker.NoCache
+		qr.Cache = worker.NoCache // 设置事物是否使用缓存
 	}
 
-	if qc.req.StartTs == 0 {
-		assignTimestampStart := time.Now()
-		qc.req.StartTs = worker.State.GetTimestamp(qc.req.ReadOnly)
-		qc.latency.AssignTimestamp = time.Since(assignTimestampStart)
+	if qc.req.StartTs == 0 { // 如果依旧还未分配开始时间戳
+		assignTimestampStart := time.Now() // 记录请求时间戳的时间
+		qc.req.StartTs = worker.State.GetTimestamp(qc.req.ReadOnly) // 异步的去获取时间戳了（去请求其他主机获取）
+		qc.latency.AssignTimestamp = time.Since(assignTimestampStart) // 记录获取时间戳所花费的时间
 	}
 
 	qr.ReadTs = qc.req.StartTs
 	resp.Txn = &api.TxnContext{StartTs: qc.req.StartTs}
 
 	// Core processing happens here.
-	er, err := qr.Process(ctx) //NOTE:核心操作，调用实际业务逻辑的实施者
-
-	if bool(glog.V(3)) || worker.LogDQLRequestEnabled() {
+	er, err := qr.Process(ctx) //NOTE:核心操作，调用实际业务逻辑的实施者，此行结束就获取到结果了，但是如果要客户端直接用，还需要在下面进行解析 //zzlTODO:看到这里了
+	// 返回的结果er以子图嵌套的方式返回
+	// 在er.Subgraphs（这个Subgraph就是qr的里面的那个Subgraph）里面，这个里面最上层应该对应的是查询体的最外层，然后里面还有chilren再表示属性等
+	// 比如查有age的节点（如果该节点类型共有name属性与age属性，且目前数据库中共有两个含age属性的节点）
+	// 	 Subgraphs切片里第一个元素就是指 查询体最外层 对应有age的节点
+	// 	 然后在Subgraph.Children的每个对应一个属性，即对于本次查询，共有两个 name 与 age
+	// 	 再在name与age中，各自分别有两个属性值，存储在valueMatrix切片中
+	if bool(glog.V(3)) || worker.LogDQLRequestEnabled() { // 判断是否需要记录DQL请求
 		glog.Infof("Finished a query that started at: %+v",
 			qr.Latency.Start.Format(time.RFC3339))
 	}
 
-	if err != nil {
+	if err != nil { // 做防卫式设计
 		if bool(glog.V(3)) {
 			glog.Infof("Error processing query: %+v\n", err.Error())
 		}
 		return resp, errors.Wrap(err, "")
 	}
 
-	if len(er.SchemaNode) > 0 || len(er.Types) > 0 {
+	// 下面这个if-else主要的功能就是解析er，并得到最终在客户端会用到的数据结构
+	if len(er.SchemaNode) > 0 || len(er.Types) > 0 { // 处理er的SchemaNode与Types，并给响应的结果体添加有关这两项的数据
 		if err = authorizeSchemaQuery(ctx, &er); err != nil {
 			return resp, err
 		}
-		sort.Slice(er.SchemaNode, func(i, j int) bool {
+		sort.Slice(er.SchemaNode, func(i, j int) bool { // 排序Schema
 			return er.SchemaNode[i].Predicate < er.SchemaNode[j].Predicate
 		})
-		sort.Slice(er.Types, func(i, j int) bool {
+		sort.Slice(er.Types, func(i, j int) bool { // 排序Type
 			return er.Types[i].TypeName < er.Types[j].TypeName
 		})
 
 		respMap := make(map[string]interface{})
 		if len(er.SchemaNode) > 0 {
-			respMap["schema"] = er.SchemaNode
+			respMap["schema"] = er.SchemaNode 
 		}
 		if len(er.Types) > 0 {
 			respMap["types"] = formatTypes(er.Types)
 		}
 		resp.Json, err = json.Marshal(respMap)
-	} else if qc.req.RespFormat == api.Request_RDF {
-		resp.Rdf, err = query.ToRDF(qc.latency, er.Subgraphs)
+	} else if qc.req.RespFormat == api.Request_RDF { // 如果为为RDF请求，返回体中设置Rdf属性（依照er的Subgraphs）
+		resp.Rdf, err = query.ToRDF(qc.latency, er.Subgraphs) // NOTE:核心操作，解析结果，并最终将结果放到resp.Rdf中
 	} else {
-		resp.Json, err = query.ToJson(ctx, qc.latency, er.Subgraphs, qc.gqlField)
+		resp.Json, err = query.ToJson(ctx, qc.latency, er.Subgraphs, qc.gqlField) // NOTE:核心操作，解析结果，并最终将结果放到reso.Json中，zzlTODO:这个也可以看一下，看看怎么解析的
 	}
 	// if err is just some error from GraphQL encoding, then we need to continue the normal
 	// execution ignoring the error as we still need to assign metrics and latency info to resp.
@@ -1562,6 +1572,9 @@ func processQuery(ctx context.Context, qc *queryContext) (*api.Response, error) 
 	// It is used later for constructing set and delete mutations by replacing
 	// variables with the actual uids they correspond to.
 	// If a variable doesn't have any UID, we generate one ourselves later.
+	// varToUID包含变量名到与其对应的uid的映射。
+	// 它稍后用于构建集合，并通过将变量替换为它们对应的实际uid来删除突变。
+	// 如果一个变量没有任何UID，我们稍后会自己生成一个。
 	for name := range qc.uidRes {
 		v := qr.Vars[name]
 
@@ -1595,6 +1608,7 @@ func processQuery(ctx context.Context, qc *queryContext) (*api.Response, error) 
 	}
 
 	// look for values for value variables
+	// 查找值变量的值
 	for name := range qc.valRes {
 		v := qr.Vars[name]
 		qc.valRes[name] = v.Vals
@@ -1608,10 +1622,10 @@ func processQuery(ctx context.Context, qc *queryContext) (*api.Response, error) 
 		NumUids: er.Metrics,
 	}
 	var total uint64
-	for _, num := range resp.Metrics.NumUids {
+	for _, num := range resp.Metrics.NumUids { // 遍历并累加 返回体 内记录的各个属性返回的数量
 		total += num
 	}
-	resp.Metrics.NumUids["_total"] = total
+	resp.Metrics.NumUids["_total"] = total //Metrics包含与查询相关的所有度量。这行是把本次查询返回的属性总数记录起来
 
 	return resp, err
 }

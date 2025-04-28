@@ -2764,7 +2764,7 @@ func UidToHex(uid uint64) string {
 // 处理查询时填写子图、变量和延迟。
 type Request struct {
 	ReadTs   uint64 // ReadTs for the transaction.
-	Cache    int    // 0 represents use txn cache, 1 represents not to use cache.
+	Cache    int    // 0 represents use txn cache, 1 represents not to use cache.0表示使用txn缓存，1表示不使用缓存。
 	Latency  *Latency
 	DqlQuery *dql.Result
 

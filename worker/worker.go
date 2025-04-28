@@ -186,6 +186,7 @@ func UpdateLogDQLRequest(val bool) {
 }
 
 // LogDQLRequestEnabled returns true if logging of requests is enabled otherwise false.
+// 如果启用了请求日志记录，则LogDQLRequestEnabled返回true，否则返回false。
 func LogDQLRequestEnabled() bool {
 	return atomic.LoadInt32(&x.WorkerConfig.LogDQLRequest) > 0
 }

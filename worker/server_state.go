@@ -174,7 +174,7 @@ func (s *ServerState) Dispose() {
 func (s *ServerState) GetTimestamp(readOnly bool) uint64 {
 	tr := tsReq{readOnly: readOnly, ch: make(chan uint64)}
 	s.needTs <- tr // 将当前待获得时间戳的结构体压入worker的ServerState的needTs队列里面
-	return <-tr.ch // 获取得到了后，将其获取的txn时间戳返回
+	return <-tr.ch // 等到异步获取得到了后，将其获取的txn时间戳返回
 }
 
 func (s *ServerState) fillTimestampRequests() {

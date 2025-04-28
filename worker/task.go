@@ -986,7 +986,7 @@ func (qs *queryState) handleUidPostings(
 const (
 	// UseTxnCache indicates the transaction cache should be used.
 	UseTxnCache = iota
-	// NoCache indicates no caches should be used.
+	// NoCache indicates no caches should be used.NoCache表示不应使用缓存。
 	NoCache
 )
 

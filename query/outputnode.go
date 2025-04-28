@@ -48,6 +48,7 @@ import (
 )
 
 // ToJson converts the list of subgraph into a JSON response by calling toFastJSON.
+// ToJson通过调用toFastJSON将子图列表转换为JSON响应。
 func ToJson(ctx context.Context, l *Latency, sgl []*SubGraph, field gqlSchema.Field) ([]byte,
 	error) {
 	sgr := &SubGraph{}
