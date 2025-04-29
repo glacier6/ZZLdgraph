@@ -1517,7 +1517,7 @@ func processQuery(ctx context.Context, qc *queryContext) (*api.Response, error) 
 	resp.Txn = &api.TxnContext{StartTs: qc.req.StartTs}
 
 	// Core processing happens here.
-	er, err := qr.Process(ctx) //NOTE:核心操作，调用实际业务逻辑的实施者，此行结束就获取到结果了，但是如果要客户端直接用，还需要在下面进行解析 //zzlTODO:看到这里了
+	er, err := qr.Process(ctx) //NOTE:核心操作，调用实际业务逻辑的实施者，此行结束就获取到结果了，但是如果要客户端直接用，还需要在下面进行解析
 	// 返回的结果er以子图嵌套的方式返回
 	// 在er.Subgraphs（这个Subgraph就是qr的里面的那个Subgraph）里面，这个里面最上层应该对应的是查询体的最外层，然后里面还有chilren再表示属性等
 	// 比如查有age的节点（如果该节点类型共有name属性与age属性，且目前数据库中共有两个含age属性的节点）
