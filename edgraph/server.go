@@ -1537,11 +1537,11 @@ func processQuery(ctx context.Context, qc *queryContext) (*api.Response, error) 
 	}
 
 	// 下面这个if-else主要的功能就是解析er，并得到最终在客户端会用到的数据结构
-	if len(er.SchemaNode) > 0 || len(er.Types) > 0 { // 处理er的SchemaNode与Types，并给响应的结果体添加有关这两项的数据
+	if len(er.SchemaNode) > 0 || len(er.Types) > 0 { // 处理er中Schema自身的的Predicates与Types，并给响应的结果体添加有关这两项的数据
 		if err = authorizeSchemaQuery(ctx, &er); err != nil {
 			return resp, err
 		}
-		sort.Slice(er.SchemaNode, func(i, j int) bool { // 排序Schema
+		sort.Slice(er.SchemaNode, func(i, j int) bool { // 排序Predicates
 			return er.SchemaNode[i].Predicate < er.SchemaNode[j].Predicate
 		})
 		sort.Slice(er.Types, func(i, j int) bool { // 排序Type
