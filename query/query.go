@@ -232,19 +232,25 @@ type Function struct {
 // SubGraph is the way to represent data. It contains both the request parameters and the response.
 // Once generated, this can then be encoded to other client convenient formats, like GraphQL / JSON.
 // SubGraphs are recursively nested. Each SubGraph contain the following:
-//   - SrcUIDS: A list of UIDs that were sent to this query. If this subgraph is a child graph, then the
-//     DestUIDs of the parent must match the SrcUIDs of the children.
+//   - SrcUIDS: A list of UIDs that were sent to this query. If this subgraph is a child graph, then the DestUIDs of the parent must match the SrcUIDs of the children.
 //   - DestUIDs: A list of UIDs for which there can be output found in the Children field
 //   - Children: A list of child results for this query
 //   - valueMatrix: A list of values, against a single attribute, such as name (for a scalar subgraph).
 //     This must be the same length as the SrcUIDs
 //   - uidMatrix: A list of outgoing edges. This must be same length as the SrcUIDs list.
-//
-// Example, say we are creating a SubGraph for a query "users", which returns one user with name 'Foo', you may get
-// SubGraph
-//
+// SubGraph是表示数据的方法。它包含请求参数和响应。
+// 一旦生成，就可以将其编码为其他客户端方便的格式，如GraphQL/JSON。
+// SubGraph是递归嵌套的。每个子图包含以下内容：
+//   -SrcUIDS：发送到此查询的UID列表。如果此subgraph是子图，则父图的DestUID必须与子图的SrcUID匹配。（即上一层subGraph待查询的下一层UID）
+//   -DestUID：可以在Children字段中找到其输出的UID列表（即当前层subGraph待查询的下一层UID）
+//	 -Children：此查询的Children结果列表（当前层subGraph查询出来的主体，里面每一个都是一个subGraph对象）
+//	 -valueMatrix：针对单个属性的值列表，例如name（用于标量子图）。这必须与SrcUID的长度相同
+//	 -uidMatrix：输出边列表。这必须与SrcUID列表的长度相同。
+
+// Example, say we are creating a SubGraph for a query "users", which returns one user with name 'Foo', you may get SubGraph
+// 例如，假设我们正在为查询“users”创建一个SubGraph，它返回一个名为“Foo”的用户，你可能会得到SubGraph
 //	Params: { Alias: "users" }
-//	SrcUIDs: [1]
+//	SrcUIDs: [1] 
 //	DestUIDs: [1]
 //	uidMatrix: [[1]]
 //	Children:
@@ -253,6 +259,9 @@ type Function struct {
 //	    SrcUIDs: [1]
 //	    uidMatrix: [[]]
 //	    valueMatrix: [["Foo"]]
+
+// 也就是说，整个查询流程是先按照查询的语句的嵌套层次生成一个顶级查询SubGraph（如果最顶层有多个查询函数，那么也生成多个顶级SubGrpah）
+// 然后通过不断的循环查询往里面套下一个层级的子SubGraph，以生成最终查询结果的SubGraph
 type SubGraph struct {
 	ReadTs      uint64
 	Cache       int
@@ -260,50 +269,59 @@ type SubGraph struct {
 	UnknownAttr bool
 	// read only parameters which are populated before the execution of the query and are used to
 	// execute this query.
+	// 只读参数，在执行查询之前填充，用于执行此查询。
 	Params params
 
 	// count stores the count of an edge (predicate). There would be one value corresponding to each
 	// uid in SrcUIDs.
+	// count存储边（谓词）的计数。SrcUID中的每个uid对应一个值。
 	counts []uint32
+
 	// valueMatrix is a slice of ValueList. If this SubGraph is for a scalar predicate type, then
 	// there would be one list for each uid in SrcUIDs storing the value of the predicate.
 	// The individual elements of the slice are a ValueList because we support scalar predicates
 	// of list type. For non-list type scalar predicates, there would be only one value in every
 	// ValueList.
+	// valueMatrix是ValueList的一部分。如果此子图用于标量谓词类型，则SrcUID中的每个uid都有一个列表，用于存储谓词的值。
+  // 切片的各个元素是一个ValueList，因为我们支持列表类型的标量谓词。对于非列表类型的标量谓词，每个ValueList中只有一个值。
 	valueMatrix []*pb.ValueList
+
 	// uidMatrix is a slice of List. There would be one List corresponding to each uid in SrcUIDs.
 	// In graph terms, a list is a slice of outgoing edges from a node.
+	// uidMatrix是List的一个片段。SrcUID中的每个uid对应一个List。
+	// 在图中，列表是节点的输出边的一部分。
 	uidMatrix []*pb.List
 
-	// facetsMatrix contains the facet values. There would a list corresponding to each uid in
-	// uidMatrix.
+	// facetsMatrix contains the facet values. There would a list corresponding to each uid in uidMatrix.
+	// facetsMatrix包含方面值。在uidMatrix中，每个uid都对应一个列表。
 	facetsMatrix []*pb.FacetsList
 	ExpandPreds  []*pb.ValueList
-	GroupbyRes   []*groupResults // one result for each uid list.
+	GroupbyRes   []*groupResults // one result for each uid list. //每个uid列表对应一个结果。
 	LangTags     []*pb.LangList
 
-	// SrcUIDs is a list of unique source UIDs. They are always copies of destUIDs
-	// of parent nodes in GraphQL structure.
+	// SrcUIDs is a list of unique source UIDs. They are always copies of destUIDs of parent nodes in GraphQL structure.
+	// SrcUID是唯一源UID的列表。它们始终是GraphQL结构中父节点的destUID的副本。
 	SrcUIDs *pb.List
-	// SrcFunc specified using func. Should only be non-nil at root. At other levels,
-	// filters are used.
+	// SrcFunc specified using func. Should only be non-nil at root. At other levels, filters are used.
+	// 使用func指定SrcFunc。根上只能是非nil。在其他级别，使用过滤器。
 	SrcFunc *Function
 
 	FilterOp     string
-	Filters      []*SubGraph // List of filters specified at the current node.
+	Filters      []*SubGraph // List of filters specified at the current node.//在当前节点指定的筛选器列表。
 	facetsFilter *pb.FilterTree
 	MathExp      *mathTree
-	Children     []*SubGraph // children of the current node, should be empty for leaf nodes.
+	Children     []*SubGraph // children of the current node, should be empty for leaf nodes.//对于叶节点，当前节点的子节点应为空。
 
-	// destUIDs is a list of destination UIDs, after applying filters, pagination.
+	// destUIDs is a list of destination UIDs, after applying filters, pagination. //destUID是应用过滤器、分页后的目标UID列表。
 	DestUIDs *pb.List
-	List     bool // whether predicate is of list type
+	List     bool // whether predicate is of list type //谓词是否为列表类型
 
 	pathMeta *pathMetadata
 
 	vectorMetrics map[string]uint64
 }
 
+// 根据传递进来的函数，递归的给各层级的subGraph设置相应的属性值
 func (sg *SubGraph) recurse(set func(sg *SubGraph)) {
 	set(sg)
 	for _, child := range sg.Children {
@@ -1667,6 +1685,7 @@ func (sg *SubGraph) populateFacetVars(doneVars map[string]varValue, sgPath []*Su
 
 // recursiveFillVars fills the value of variables before a query is to be processed using the result
 // of the values (doneVars) computed by other queries that were successfully run before this query.
+// recursiveFillVars在处理查询之前，使用在此查询之前成功运行的其他查询计算的值（doneVars）的结果填充变量的值。
 func (sg *SubGraph) recursiveFillVars(doneVars map[string]varValue) error {
 	err := sg.fillVars(doneVars)
 	if err != nil {
@@ -2779,6 +2798,7 @@ type Request struct {
 // ProcessQuery处理请求的查询部分（没有突变）。
 // 填充子图和变量。
 // 它可以处理作为查询一部分的多个查询块。。
+// 本函数主要关注 大循环 与 在其内的小循环
 func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 	span := otrace.FromContext(ctx) // FromContext返回存储在上下文中的Span，或者如果没有记录事件，则返回不记录事件的Span。
 	stop := x.SpanTimer(span, "query.ProcessQuery") //SpanTimer返回一个函数，用于记录给定跨度的持续时间。
@@ -2789,7 +2809,7 @@ func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 	loopStart := time.Now() // 记录开始时间
 	queries := req.DqlQuery.Query // zzlTODO:看到这里了！
 	// first loop converts queries to SubGraph representation and populates ReadTs And Cache.
-	// 第一个循环将查询转换为子图表示（即完成了 query.Request.GqlQuery.Query 到 query.SubGraph 的转换），并填充ReadTs和Cache。
+	// 第一个循环将查询的语句转换为顶层subGraph查询视图，并且将其放到req中（即完成了 query.Request.GqlQuery.Query 到 query.SubGraph 的转换），并填充ReadTs和Cache。
 	for i := range queries {
 		gq := queries[i]
 
@@ -2798,34 +2818,34 @@ func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 			return errors.Errorf("Invalid query. No function used at root and no aggregation" +
 				" or math variables found in the body.")
 		}
-		sg, err := ToSubGraph(ctx, gq)
+		sg, err := ToSubGraph(ctx, gq) // 转为subGraph
 		if err != nil {
 			return errors.Wrapf(err, "while converting to subgraph")
 		}
-		sg.recurse(func(sg *SubGraph) {
+		sg.recurse(func(sg *SubGraph) {  // 递归的给当前顶层查询subGraph设置时间戳与cache
 			sg.ReadTs = req.ReadTs
 			sg.Cache = req.Cache
 		})
 		span.Annotate(nil, "Query parsed")
-		req.Subgraphs = append(req.Subgraphs, sg)
+		req.Subgraphs = append(req.Subgraphs, sg) // 所有顶层subGraph的汇总，生成一个待查询总视图
 	}
-	req.Latency.Parsing += time.Since(loopStart)
+	req.Latency.Parsing += time.Since(loopStart) // 记录解析查询语句并转为SubGraph结构花了多少时间
 
-	execStart := time.Now()
-	hasExecuted := make([]bool, len(req.Subgraphs))
-	numQueriesDone := 0
+	execStart := time.Now() // 记录真正开始执行的时间
+	hasExecuted := make([]bool, len(req.Subgraphs)) // 记录每一个顶层SubGraph的查询状态（即是否完成查询）
+	numQueriesDone := 0 // 顶层SubGraph查询完成的数量
 
 	// canExecute returns true if a query block is ready to execute with all the variables
 	// that it depends on are already populated or are defined in the same block.
 	// 如果查询块已准备好执行，并且它所依赖的所有变量都已填充或定义在同一块中，则canExecute返回true。
 	canExecute := func(idx int) bool {
-		queryVars := req.DqlQuery.QueryVars[idx]
-		for _, v := range queryVars.Needs {
+		queryVars := req.DqlQuery.QueryVars[idx] // 取出来一个子查询（即前面的顶层SubGraph）的查询变量对象
+		for _, v := range queryVars.Needs { // 判断当前子查询的所需变量v是否已齐全
 			// here we check if this block defines the variable v.
 			// 这里我们检查这个块是否定义了变量v。
 			var selfDep bool
-			for _, vd := range queryVars.Defines {
-				if v == vd {
+			for _, vd := range queryVars.Defines { // 在当前子查询中已定义的变量中找
+				if v == vd { // 如果该变量存在（即在已定义中找到了）
 					selfDep = true
 					break
 				}
@@ -2833,8 +2853,8 @@ func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 			// The variable should be defined in this block or should have already been
 			// populated by some other block, otherwise we are not ready to execute yet.
 			// 变量应该在这个块中定义，或者应该已经被其他块填充，否则我们还没有准备好执行。
-			_, ok := req.Vars[v]
-			if !ok && !selfDep {
+			_, ok := req.Vars[v] // 在当前请求的全局变量中找
+			if !ok && !selfDep { // 如果当前子查询与当前req的全局变量中都没找到当前子查询所需要的变量
 				return false
 			}
 		}
@@ -2842,33 +2862,41 @@ func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 	}
 
 	var shortestSg []*SubGraph
+	// 下面就是本函数的主要执行模块--大循环
 	for i := 0; i < len(req.Subgraphs) && numQueriesDone < len(req.Subgraphs); i++ {
+		// 这个for是依次处理各个顶层SubGraph，有这个循环主要是因为每个顶层SubGraph之间可能有查询前置的关系，如果各个顶层SubGraph没有前置关系，则应该是会在一轮循环中查询出所有结果
 		errChan := make(chan error, len(req.Subgraphs))
 		var idxList []int
 		// If we have N blocks in a query, it can take a maximum of N iterations for all of them
 		// to be executed.
-		// 如果查询中有N个块，则最多需要N次迭代才能执行所有块。
+		// 如果查询中有N个块（即N个顶层SubGraph），则最多需要N次迭代才能执行所有块。
+		// 注意每轮执行上面的大循环时，都会在每轮中更新所有的顶层子图的执行状态（即下面这个小循环）
 		for idx := range req.Subgraphs {
 			if hasExecuted[idx] {
 				continue
 			}
 			sg := req.Subgraphs[idx]
 			// Check the list for the requires variables.
-			if !canExecute(idx) {
+			if !canExecute(idx) { // 判断前置查询的变量是否已查询齐全，是否可以开始执行查询（即判断当某个查询有前置查询时，该前置查询是否已经执行完毕了）
 				continue
 			}
 
-			err = sg.recursiveFillVars(req.Vars)
+			err = sg.recursiveFillVars(req.Vars) // 使用在此查询之前成功运行的其他查询计算的值（doneVars）的结果填充当前子查询所需变量的值。
 			if err != nil {
 				return err
 			}
 			hasExecuted[idx] = true
-			numQueriesDone++
-			idxList = append(idxList, idx)
+			numQueriesDone++  // 已经开始执行的顶层SubGraph的累计
+			idxList = append(idxList, idx) // 存正在执行查询的顶层SubGraph的下标
+
+			// 到这里，就是满足了通用的查询前置条件，要真正开始查询了（如果该查询特殊，判断出不用执行，也要把一个nil设置到errChan中）
+
 			// A query doesn't need to be executed if
 			// 1. It just does aggregation and math functions which is when sg.Params.IsEmpty is true.
-			// 2. Its has an inequality fn at root without any args which can happen when it uses
-			// value variables for args which don't expand to any value.
+			// 2. Its has an inequality fn at root without any args which can happen when it uses value variables for args which don't expand to any value.
+			// 如果满足以下条件，则不需要执行查询
+			// 1.它只执行聚合和数学函数，这是sg.Params的时候。IsEmpty是真的。
+			// 2.它在根处有一个不带任何args的不等式fn，当它为不展开为任何值的args使用值变量时，可能会出现这种情况。
 			if sg.Params.IsEmpty || isEmptyIneqFnWithVar(sg) {
 				errChan <- nil
 				continue
@@ -2876,6 +2904,7 @@ func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 
 			// Just as above, no need to execute "similar_to" query if the
 			// vector parameter was a Var and evaluated as empty
+			// 如上所述，如果向量参数是Var并且计算结果为空，则不需要执行“similar_to”查询
 			if sg.SrcFunc != nil && sg.SrcFunc.Name == "similar_to" &&
 				len(sg.SrcFunc.Args) == 1 && len(sg.Params.NeedsVar) > 0 {
 				errChan <- nil
@@ -2883,12 +2912,13 @@ func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 			}
 
 			// NOTE:shortestPath 和 recurse 里最终都会调用到ProcessGraph。 接下来就是使用通道阻塞, 等待 ProcessGraph 的处理结果
+			// zzlTODO:看到这里了！！
 			switch {
 			case sg.Params.Alias == "shortest":
 				// We allow only one shortest path block per query.
-				// 我们只允许每个查询有一个最短路径块。
+				// 我们只允许每个查询有一个最短路径查询。
 				go func() {
-					shortestSg, err = shortestPath(ctx, sg)  // NOTE:核心操作
+					shortestSg, err = shortestPath(ctx, sg)  // NOTE:核心操作，最短路径查询
 					errChan <- err
 				}()
 			case sg.Params.Recurse:
@@ -2902,8 +2932,9 @@ func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 
 		var ferr error
 		// Wait for the execution that was started in this iteration.
+		// 等待此迭代中启动的执行。
 		for range idxList {
-			if err = <-errChan; err != nil {
+			if err = <-errChan; err != nil { // 阻塞（注意就算是查询成功，也会在errChan中放入nil）
 				ferr = err
 				continue
 			}
@@ -2912,7 +2943,10 @@ func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 			return ferr
 		}
 
+		// 到这里，就算是当前大循环的等待执行都已完成（注意不是所有查询均完成了，只是当前轮次可以执行的满足前置条件的查询完成了）
+
 		// If the executed subgraph had some variable defined in it, Populate it in the map.
+		// 如果执行的子图中定义了一些变量，则将其填充到映射中。
 		for _, idx := range idxList {
 			sg := req.Subgraphs[idx]
 
