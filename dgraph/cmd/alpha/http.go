@@ -216,8 +216,8 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := context.WithValue(r.Context(), query.DebugKey, isDebugMode)  // 在请求上下文中加入 是否是debug 的标识
-	ctx = x.AttachAccessJwt(ctx, r) // 在请求上下文中加入JWT
-	ctx = x.AttachRemoteIP(ctx, r) // 在请求上下文中加入解析出来的发出请求的主机的IP与Port
+	ctx = x.AttachAccessJwt(ctx, r) // 在gRPC的请求上下文的metadata中加入JWT
+	ctx = x.AttachRemoteIP(ctx, r) // 在gRPC请求上下文的peer中加入解析出来的发出请求的主机的IP与Port
 
 	if queryTimeout != 0 {
 		var cancel context.CancelFunc
@@ -234,7 +234,7 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 
 	if req.StartTs == 0 {
 		// If be is set, run this as a best-effort query.
-		// 如果设置了be，则将其作为尽力而为的查询运行。
+		// 如果设置了be(BEST EFFORT)，则将其作为尽力而为的查询运行。
 		isBestEffort, err := parseBool(r, "be")
 		if err != nil {
 			x.SetStatus(w, x.ErrorInvalidRequest, err.Error())
@@ -246,7 +246,7 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// If ro is set, run this as a readonly query.
-		// 如果设置了ro，请将其作为只读查询运行。
+		// 如果设置了ro(READ ONLY)，请将其作为只读查询运行。
 		isReadOnly, err := parseBool(r, "ro")
 		if err != nil {
 			x.SetStatus(w, x.ErrorInvalidRequest, err.Error())

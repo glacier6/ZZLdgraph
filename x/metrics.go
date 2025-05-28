@@ -565,6 +565,7 @@ func MetricsContext() context.Context {
 }
 
 // WithMethod returns a new updated context with the tag KeyMethod set to the given value.
+// WithMethod返回一个新的更新上下文，其中标记KeyMethod设置为给定值。
 func WithMethod(parent context.Context, method string) context.Context {
 	ctx, err := tag.New(parent, tag.Upsert(KeyMethod, method))
 	Check(err)

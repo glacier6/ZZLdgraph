@@ -39,13 +39,15 @@
         - 2.9.4 另外，Dgraph 与 OpenCensus 集成，可以收集Dgraph集群的分布式跟踪信息  
   - 2.10 NOTE:重要！！！ 每个组内构成一个RAFT应用环境，即每个组内均有一个leader，查看哪个为leader可以请求Zero的 /state 端口，该端口还会返回很多状态信息，详见官方文档的 Administration-(Self Managed Deployments)-(Dgraph Zero)
   - 2.11 Zero使用gPRC在5080端口上进行集群内部通信，使用6080进行管理操作
-  - 2.12 NOTE: Badger 的值是 Posting Lists 和索引（Posting Lists是所有共享 <subject>+<predicate> 对的三元组的列表）。Badger 的键是通过连接 <RelationshipName>+<NodeUID> 形成的。 (UID是64位的数值)
+  - 2.12 NOTE: Badger 的值是 Posting Lists 和索引（Posting Lists是所有共享 subject + predicate 对的三元组的列表）。Badger 的键是通过连接 NodeUID + RelationshipName （节点ID与关系名，即主谓）形成的。 (UID是64位的数值)
           如下面的数据，Posting Lists便是 person3UID+friend->[person2UID, person4UID]，也正因此，如果person的朋友有很多，那么这个KV变得巨大
-          person3	friend  朋友	person2
-          person3	friend  朋友	person4
+          person3	friend person2
+          person3	friend person4
   - 2.13 Dgraph的事务，同Badger的理念基本一致，也是mvcc+乐观锁
   - 2.14 Dgraph 维护一组固定的worker进程（类似于线程或 goroutine），它们可以并行检索和执行通过 HTTP 或 gRPC 发送的查询。
          Dgraph 还并行化单个查询执行中的任务（通过GO的协程goroutine），以最大化并行性和更充分地利用系统资源。
+  - 2.15 Dgraph的z与x对象应该是全局的缓存器对象与公共服务对象，x会提供一些公用的方法以及全局的配置变量
+          edgraph貌似是主要处理一些具体的查询变更事务
 ### (3) Dgraph代码太庞大了，下面按分支来看  
   NOTE:4100  数据库绑定 各类请求的对应响应函数 的开端  
 ### (4) GraphQL与DQL  

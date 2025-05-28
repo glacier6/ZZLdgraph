@@ -522,7 +522,7 @@ func AttachAuthToken(ctx context.Context, r *http.Request) context.Context {
 // AttachAccessJwt adds any incoming JWT header data into the grpc context metadata
 // AttachAccessJwt将任何传入的JWT标头数据添加到grpc上下文元数据中
 func AttachAccessJwt(ctx context.Context, r *http.Request) context.Context {
-	if accessJwt := r.Header.Get("X-Dgraph-AccessToken"); accessJwt != "" {
+	if accessJwt := r.Header.Get("X-Dgraph-AccessToken"); accessJwt != "" { // 解析出来JWT
 		md, ok := metadata.FromIncomingContext(ctx) //获取当前上下文的metadata对象（注意metadata对象是一个map，key必为string，v可以是String，也可以是二进制数据）
 		if !ok {
 			md = metadata.New(nil) //没找到就创建新的

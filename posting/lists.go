@@ -41,7 +41,7 @@ var (
 )
 
 // Init initializes the posting lists package, the in memory and dirty list hash.
-// Init初始化发布列表包、内存中和脏列表哈希。
+// Init初始化  posting lists包、内存中和脏列表哈希。
 func Init(ps *badger.DB, cacheSize int64, deleteOnUpdates bool) {
 	pstore = ps
 	closer = z.NewCloser(1)

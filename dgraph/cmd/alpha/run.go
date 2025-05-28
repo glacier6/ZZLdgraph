@@ -117,6 +117,7 @@ they form a Raft group and provide synchronous replication.
 	// --encryption and --vault Superflag
 	ee.RegisterAclAndEncFlags(flag)
 
+	//下面是定义命令行的输入参数
 	// String函数定义了三个参数依次为一个CLI参数的 name（如常用的help）、 默认值和用法的CLI参数。
 	// 返回值是存储标志值的字符串变量的地址。
 	// StringP类似于String，但接受一个可以在单个破折号后使用的简写字母。
@@ -505,7 +506,7 @@ func setupServer(closer *z.Closer) {
 		log.Fatalf("Failed to setup TLS: %v\n", err)
 	}
 
-	//下面是定义两个监听器（当前只建立了监听器net.Listener，没有server，server在下面的那两个协程里面），监听TCP连接，setupListener第一个参数是地址，第二个是监听的端口号
+	//下面是定义两个监听器（当前只建立了监听器net.Listener，没有server，server在下面的那两个协程里面 NOTE:05280），监听TCP连接，setupListener第一个参数是地址，第二个是监听的端口号
 	httpListener, err := setupListener(laddr, httpPort())
 	// http.Handle("/test", myHandler{})
 	// http.ListenAndServe(":8080", nil)
@@ -611,7 +612,7 @@ func setupServer(closer *z.Closer) {
 	baseMux.Handle("/ui/keywords", http.HandlerFunc(keywordHandler))
 
 	// Initialize the servers.
-	// 初始化服务器，开启两个协程去监听http与GRPC
+	// 初始化服务器，开启两个协程去监听http与GRPC （NOTE:05280）
 	x.ServerCloser.AddRunning(3)
 	go serveGRPC(grpcListener, tlsCfg, x.ServerCloser) //监听GRPC请求
 	go x.StartListenHttpAndHttps(httpListener, tlsCfg, x.ServerCloser)//监听http请求，貌似上面注册的链接会因为HTTP包内部的操作默认放到http内部上？
@@ -650,10 +651,11 @@ func setupServer(closer *z.Closer) {
 	x.ServerCloser.Wait()
 }
 
+// 运行run时就已经有CLI的参数了，在本函数中主要是对各种配置的获取、解析以及设置
 func run() {
 	var err error
 
-	// SuperFlag是超级标志（CLI中用），其内会包含很多子标志，如telemetry，badger，cache等等都是超级标志
+	// SuperFlag是超级标志（CLI中用），其内会包含很多子标志（即各类配置），如telemetry，badger，cache等等都是超级标志
 	// 超级标志的一般语法如下： --<super-flag-name> option-a=value; option-b=value
 	// 而telemetry控制的是将监控数据发送给Dgraph开发人员。
 	telemetry := z.NewSuperFlag(Alpha.Conf.GetString("telemetry")).MergeAndCheckDefault(  // 而NewSuperFlag就是把CLI的超级标志字符串解析成可以使用的对象
@@ -692,6 +694,7 @@ func run() {
 	x.Config.Limit = z.NewSuperFlag(Alpha.Conf.GetString("limit")).MergeAndCheckDefault(
 		worker.LimitDefaults)  //设置各种最大值，比如 允许并发处理的最大请求数量 ，查询中可以返回的最大边数等等
 
+	// 下面是填充worker的配置项
 	opts := worker.Options{ 
 		PostingDir:      Alpha.Conf.GetString("postings"),
 		WALDir:          Alpha.Conf.GetString("wal"),
@@ -723,11 +726,11 @@ func run() {
 	abortDur := x.Config.Limit.GetDuration("txn-abort-after")
 	switch strings.ToLower(x.Config.Limit.GetString("mutations")) {
 	case "allow":
-		opts.MutationsMode = worker.AllowMutations
+		opts.MutationsMode = worker.AllowMutations // 普通的允许变更模式
 	case "disallow":
-		opts.MutationsMode = worker.DisallowMutations
+		opts.MutationsMode = worker.DisallowMutations // 不允许变更模式
 	case "strict":
-		opts.MutationsMode = worker.StrictMutations
+		opts.MutationsMode = worker.StrictMutations // 严格变更模式
 	default:
 		glog.Error(`--limit "mutations=<mode>;" must be one of allow, disallow, or strict`)
 		os.Exit(1)

@@ -1047,12 +1047,15 @@ type queryContext struct {
 	// a query or more than one mutations or both (in case of upsert)
 	// 尚未解析的请求, 包含一个查询或多个突变或两者都有(在 upsert 的情况下)
 	req *api.Request	
+
 	// gmuList is the list of mutations after parsing req.Mutations
 	// 解析 req.Mutations 后的突变列表
 	gmuList []*dql.Mutation  
+
 	// dqlRes contains result of parsing the req.Query
 	// 解析 req.Query 后的结果
 	dqlRes dql.Result 
+
 	// condVars are conditional variables used in the (modified) query to figure out
 	// whether the condition in Conditional Upsert is true. The string would be empty
 	// if the corresponding mutation is not a conditional upsert.
@@ -1060,30 +1063,37 @@ type queryContext struct {
 	// 查询(修改后的)中使用的条件变量, 用于确定 Upsert 中的条件是否为真。如果相应的突变不是条件 upsert, 则该字符串将为空。
 	//  请注意, len(condVars) == len(gmuList)
 	condVars []string
+
 	// uidRes stores mapping from variable names to UIDs for UID variables.
 	// These variables are either dummy variables used for Conditional
 	// Upsert or variables used in the mutation block in the incoming request.
 	// 存储从变量名称到 UID 变量的 UID 的映射。 这些变量要么是用于 Upsert 条件的虚拟变量, 要么是用于传入请求的突变块中的变量
 	uidRes map[string][]string
+
 	// valRes stores mapping from variable names to values for value
 	// variables used in the mutation block of incoming request.
 	// 存储 mutation 请求块中使用的变量(从变量名到值)的映射
 	valRes map[string]map[uint64]types.Val
+
 	// l stores latency numbers
-	// 存储延迟数
+	// 存储延迟数，就是各类操作所花费的时间
 	latency *query.Latency
+
 	// span stores a opencensus span used throughout the query processing
 	// 存储在整个查询处理过程中使用的 opencensus span
 	span *otrace.Span
+
 	// graphql indicates whether the given request is from graphql admin or not.
 	// 指示给定的请求是否来自 graphql 管理员。
 	graphql bool
+
 	// gqlField stores the GraphQL field for which the query is being processed.
 	// This would be set only if the request is a query from GraphQL layer,
 	// otherwise it would be nil. (Eg. nil cases: in case of a DQL query,
 	// a mutation being executed from GraphQL layer).
 	// 存储正在处理查询的 GraphQL 字段。仅当请求是来自 GraphQL 层的查询时才会设置, 否则将为 nil。例如 nil 案例: 在 DQL 查询的情况下, 从 GraphQL 层执行突变
 	gqlField gqlSchema.Field
+
 	// nquadsCount maintains numbers of nquads which would be inserted as part of this request.
 	// In some cases(mostly upserts), numbers of nquads to be inserted can to huge(we have seen upto
 	// 1B) and resulting in OOM. We are limiting number of nquads which can be inserted in
@@ -1091,6 +1101,7 @@ type queryContext struct {
 	// 维护将作为此请求的一部分插入的 nquad 数量。在某些情况下(主要是 upserts), 要插入的 nquad 数量可能会很大(我们已经看到高达 1B)并导致 OOM。
 	// 我们限制了可以在单个请求中插入的 nquad 数量。
 	nquadsCount int
+
 	// uniqueVar stores the mapping between the indexes of gmuList and gmu.Set,
 	// along with their respective uniqueQueryVariables.
 	// uniqueVar存储gmuList和gmu索引之间的映射。Set，以及它们各自的uniqueQueryVariables。
@@ -1266,10 +1277,10 @@ func (s *Server) QueryNoGrpc(ctx context.Context, req *api.Request) (*api.Respon
 	// apply a timeout if it's a mutation, that's currently handled by flag
 	// "txn-abort-after".
 	// 为没有设置截止日期的查询添加超时。如果是突变，我们不想应用超时，目前由标志“txn-abort-after”处理。
-	if req.GetMutations() == nil && x.Config.QueryTimeout != 0 {
+	if req.GetMutations() == nil && x.Config.QueryTimeout != 0 { // 如果非突变，且超时时间设置的非0
 		// 已判定为查询请求，且全局配置了查询超时时间
-		if d, _ := ctx.Deadline(); d.IsZero() {
-			// 判断出当前请求没有设置超时时间
+		if d, _ := ctx.Deadline(); d.IsZero() { 
+			// 判断出当前请求没有设置超时时间，给其设置上
 			var cancel context.CancelFunc
 			ctx, cancel = context.WithTimeout(ctx, x.Config.QueryTimeout)
 			defer cancel()
@@ -1351,6 +1362,7 @@ func (s *Server) doQuery(ctx context.Context, req *Request) (resp *api.Response,
 		return nil, errors.Errorf("empty request")
 	}
 
+	// 下面这一块都是做数据统计的
 	span.AddAttributes(otrace.StringAttribute("Query", req.req.Query))
 	span.Annotatef(nil, "Request received: %v", req.req)
 	if isQuery {
@@ -1404,11 +1416,11 @@ func (s *Server) doQuery(ctx context.Context, req *Request) (resp *api.Response,
 	// 对于突变，如有必要，我们会更新startTs。
 	if isMutation && req.req.StartTs == 0 {
 		start := time.Now()
-		req.req.StartTs = worker.State.GetTimestamp(false) // 得到一个突变处理的时间戳
+		req.req.StartTs = worker.State.GetTimestamp(false) // 得到一个突变处理的开始时间戳
 		qc.latency.AssignTimestamp = time.Since(start) // Since返回自t以来经过的时间，记录获取时间戳所花费的时间
 	}
 	if x.WorkerConfig.AclEnabled {
-		// 如果acl启用
+		// 如果acl（访问验证）启用
 		ns, err := x.ExtractNamespace(ctx)
 		if err != nil {
 			return nil, err
@@ -1439,8 +1451,8 @@ func (s *Server) doQuery(ctx context.Context, req *Request) (resp *api.Response,
 	// if it were a mutation, simple or upsert, in any case gqlErrs would be empty as GraphQL JSON
 	// is formed only for queries. So, gqlErrs can have something only in the case of a pure query.
 	// So, safe to ignore gqlErrs and not return that here.
-	//如果它是一个突变，无论是简单的还是意外的，在任何情况下，gqlErrs都是空的，因为GraphQL JSON仅用于查询。因此，gqlErrs只有在纯查询的情况下才能有东西。
-	//因此，可以安全地忽略gqlErrs，而不在此处返回。
+	// 如果它是一个突变，无论是简单的还是意外的，在任何情况下，gqlErrs都是空的，因为GraphQL JSON仅用于查询。因此，gqlErrs只有在纯查询的情况下才能有东西。
+	// 因此，可以安全地忽略gqlErrs，而不在此处返回。
 	if rerr = s.doMutate(ctx, qc, resp); rerr != nil {
 		// fmt.Println("进入mutate") 正常请求都不会进入这里
 		return
