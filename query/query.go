@@ -2764,7 +2764,7 @@ func UidToHex(uid uint64) string {
 // 处理查询时填写子图、变量和延迟。
 type Request struct {
 	ReadTs   uint64 // ReadTs for the transaction.
-	Cache    int    // 0 represents use txn cache, 1 represents not to use cache.
+	Cache    int    // 0 represents use txn cache, 1 represents not to use cache.0表示使用txn缓存，1表示不使用缓存。
 	Latency  *Latency
 	DqlQuery *dql.Result
 
@@ -2776,15 +2776,18 @@ type Request struct {
 // ProcessQuery processes query part of the request (without mutations).
 // Fills Subgraphs and Vars.
 // It can process multiple query blocks that are part of the query..
+// ProcessQuery处理请求的查询部分（没有突变）。
+// 填充子图和变量。
+// 它可以处理作为查询一部分的多个查询块。。
 func (req *Request) ProcessQuery(ctx context.Context) (err error) {
-	span := otrace.FromContext(ctx)
-	stop := x.SpanTimer(span, "query.ProcessQuery")
+	span := otrace.FromContext(ctx) // FromContext返回存储在上下文中的Span，或者如果没有记录事件，则返回不记录事件的Span。
+	stop := x.SpanTimer(span, "query.ProcessQuery") //SpanTimer返回一个函数，用于记录给定跨度的持续时间。
 	defer stop()
 
-	// Vars stores the processed variables.
+	// Vars stores the processed variables. //Vars存储已处理的变量。
 	req.Vars = make(map[string]varValue)
-	loopStart := time.Now()
-	queries := req.DqlQuery.Query
+	loopStart := time.Now() // 记录开始时间
+	queries := req.DqlQuery.Query // zzlTODO:看到这里了！
 	// first loop converts queries to SubGraph representation and populates ReadTs And Cache.
 	// 第一个循环将查询转换为子图表示（即完成了 query.Request.GqlQuery.Query 到 query.SubGraph 的转换），并填充ReadTs和Cache。
 	for i := range queries {
@@ -2960,39 +2963,40 @@ type ExecutionResult struct {
 
 // Process handles a query request.
 func (req *Request) Process(ctx context.Context) (er ExecutionResult, err error) {
-	err = req.ProcessQuery(ctx) //NOTE:核心操作
+	err = req.ProcessQuery(ctx) //NOTE:核心操作，对于普通的查询操作（指不包含schema自身查询），本行结束就已经获取到结果了，不过结果放在了req中
 	if err != nil {
 		return er, err
 	}
-	er.Subgraphs = req.Subgraphs
+	// 后面的就是对获取到的数据进行一些解析
+	er.Subgraphs = req.Subgraphs  
 	// calculate metrics.
-	metrics := make(map[string]uint64)
+	metrics := make(map[string]uint64) //Metrics包含与查询相关的所有度量。
 	for _, sg := range er.Subgraphs {
 		calculateMetrics(sg, metrics)
 	}
 	er.Metrics = metrics
-	namespace, err := x.ExtractNamespace(ctx)
+	namespace, err := x.ExtractNamespace(ctx) //获取当前环境的命名空间
 	if err != nil {
 		return er, errors.Wrapf(err, "While processing query")
 	}
-	schemaProcessingStart := time.Now()
-	if req.DqlQuery.Schema != nil {
+	schemaProcessingStart := time.Now() // 用于记录进行schema自身查询所花费的时间
+	if req.DqlQuery.Schema != nil {  // 如果要进行Schema自身查询
 		preds := x.NamespaceAttrList(namespace, req.DqlQuery.Schema.Predicates)
 		req.DqlQuery.Schema.Predicates = preds
-		if er.SchemaNode, err = worker.GetSchemaOverNetwork(ctx, req.DqlQuery.Schema); err != nil {
+		if er.SchemaNode, err = worker.GetSchemaOverNetwork(ctx, req.DqlQuery.Schema); err != nil {  // NOTE:核心代码，获取SchemaNode（即Schema的Predicates）
 			return er, errors.Wrapf(err, "while fetching schema")
 		}
 		typeNames := x.NamespaceAttrList(namespace, req.DqlQuery.Schema.Types)
 		req.DqlQuery.Schema.Types = typeNames
-		if er.Types, err = worker.GetTypes(ctx, req.DqlQuery.Schema); err != nil {
+		if er.Types, err = worker.GetTypes(ctx, req.DqlQuery.Schema); err != nil { // NOTE:核心代码，获取Schema的Types
 			return er, errors.Wrapf(err, "while fetching types")
 		}
 	}
 
 	if !x.IsGalaxyOperation(ctx) {
-		// Filter the schema nodes for the given namespace.
+		// Filter the schema nodes for the given namespace. //筛选给定命名空间的架构节点。
 		er.SchemaNode = filterSchemaNodeForNamespace(namespace, er.SchemaNode)
-		// Filter the types for the given namespace.
+		// Filter the types for the given namespace. //筛选给定命名空间的类型。
 		er.Types = filterTypesForNamespace(namespace, er.Types)
 	}
 	req.Latency.Processing += time.Since(schemaProcessingStart)

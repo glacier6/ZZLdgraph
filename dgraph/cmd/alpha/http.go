@@ -232,7 +232,7 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 		Hash:    hash,
 	}
 
-	if req.StartTs == 0 {
+	if req.StartTs == 0 { // 如果还未分配开始时间戳
 		// If be is set, run this as a best-effort query.
 		// 如果设置了be(BEST EFFORT)，则将其作为尽力而为的查询运行。
 		isBestEffort, err := parseBool(r, "be")
@@ -240,7 +240,7 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 			x.SetStatus(w, x.ErrorInvalidRequest, err.Error())
 			return
 		}
-		if isBestEffort { //设置一些标志
+		if isBestEffort { //设置一些标志 NOTE:20254280
 			req.BestEffort = true
 			req.ReadOnly = true
 		}

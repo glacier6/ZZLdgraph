@@ -37,6 +37,8 @@ var o *oracle
 // Oracle returns the global oracle instance.
 // TODO: Oracle should probably be located in worker package, instead of posting
 // package now that we don't run inSnapshot anymore.
+// Oracle返回全局Oracle实例。
+// TODO:Oracle可能应该位于worker包中，而不是发布包，因为我们不再在Snapshot中运行了。
 func Oracle() *oracle {
 	return o
 }
@@ -177,6 +179,7 @@ type oracle struct {
 	x.SafeMutex
 
 	// max start ts given out by Zero. Do not use mutex on this, only use atomics.
+	// zero给出的最大startTS。不要在这上面使用互斥，只使用原子。
 	maxAssigned uint64
 
 	// Keeps track of all the startTs we have seen so far, based on the mutations. Then as
@@ -269,7 +272,7 @@ func (o *oracle) addToWaiters(startTs uint64) (chan struct{}, bool) {
 }
 
 func (o *oracle) MaxAssigned() uint64 {
-	return atomic.LoadUint64(&o.maxAssigned)
+	return atomic.LoadUint64(&o.maxAssigned) // 传入的是全局共用的startTS的指针地址，保证当前操作的原子性
 }
 
 func (o *oracle) WaitForTs(ctx context.Context, startTs uint64) error {
