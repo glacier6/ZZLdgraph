@@ -1,0 +1,31 @@
+查询
+{
+    find_follower(func: has(age)){
+        name 
+        age
+        follows {
+          name 
+          age 
+        }
+    }
+    find_follower2(func: has(name)){
+        name 
+        age
+        follows {
+          name 
+          age 
+        }
+    }
+}
+
+
+query ZZLQuery($name : string ="zzlname"){
+		find_follower(func:allofterms(name, $name)){
+        name 
+        age
+        follows {
+          name 
+          age 
+        }
+    }
+}

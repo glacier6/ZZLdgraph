@@ -499,12 +499,13 @@ func shortestPath(ctx context.Context, sg *SubGraph) ([]*SubGraph, error) {
 	}
 
 	// next is a channel on to which we send a signal so as to perform another level of expansion.
+	// 接下来是一个通道，我们向其发送信号以执行另一级扩展。
 	next := make(chan bool, 2)
 	expandErr := make(chan error, 2)
 	adjacencyMap := make(map[uint64]map[uint64]mapItem)
 	// TODO - Check if this goroutine actually improves performance. It doesn't look like it
 	// because we need to fill the adjacency map before we can make progress.
-	go sg.expandOut(ctx, adjacencyMap, next, expandErr)
+	go sg.expandOut(ctx, adjacencyMap, next, expandErr) // NOTE:核心操作，对当前获得的图进行扩展查询（内有ProcessGraph），当expandErr通道内被冲入一个errStop时，代表已经全部查询出来了
 
 	// map to store the min cost and parent of nodes.
 	dist := make(map[uint64]nodeInfo)
@@ -531,13 +532,14 @@ func shortestPath(ctx context.Context, sg *SubGraph) ([]*SubGraph, error) {
 
 		if numHops < maxHops && item.hop > numHops-1 {
 			// Explore the next level by calling processGraph and add them to the queue.
+			// 通过调用processGraph来重新探索下一个级别，并将它们添加到队列中。
 			if !stopExpansion {
 				next <- true
 				select {
-				case err = <-expandErr:
+				case err = <-expandErr: // 当已经到查询边界的时候，会返回一个errStop
 					if err != nil {
-						// errStop is returned when ProcessGraph doesn't return any more results
-						// and we can't expand anymore.
+						// errStop is returned when ProcessGraph doesn't return any more results and we can't expand anymore.
+						// 当ProcessGraph不再返回任何结果并且我们无法再展开时，将返回errStop
 						if err == errStop {
 							stopExpansion = true
 						} else {

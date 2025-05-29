@@ -221,12 +221,13 @@ type pathMetadata struct {
 }
 
 // Function holds the information about dql functions.
+// 函数保存有关dql函数的信息。
 type Function struct {
 	Name       string    // Specifies the name of the function.
 	Args       []dql.Arg // Contains the arguments of the function.
-	IsCount    bool      // gt(count(friends),0)
-	IsValueVar bool      // eq(val(s), 10)
-	IsLenVar   bool      // eq(len(s), 10)
+	IsCount    bool      // 是否是类似gt(count(friends),0)
+	IsValueVar bool      // 是否是类似eq(val(s), 10)
+	IsLenVar   bool      // 是否是类似eq(len(s), 10)
 }
 
 // SubGraph is the way to represent data. It contains both the request parameters and the response.
@@ -260,12 +261,12 @@ type Function struct {
 //	    uidMatrix: [[]]
 //	    valueMatrix: [["Foo"]]
 
-// 也就是说，整个查询流程是先按照查询的语句的嵌套层次生成一个顶级查询SubGraph（如果最顶层有多个查询函数，那么也生成多个顶级SubGrpah）
-// 然后通过不断的循环查询往里面套下一个层级的子SubGraph，以生成最终查询结果的SubGraph
+// 也就是说，整个查询流程是先按照查询的语句的嵌套层次生成一个顶级查询SubGraph（即定义出来查询的骨架）（如果最顶层有多个查询函数，那么也生成多个顶级SubGrpah）
+// 然后通过不断的循环查询往里面套下一个层级的子SubGraph查询结果（即在此过程中不断丰盈这个骨架），以生成最终查询结果的SubGraph
 type SubGraph struct {
 	ReadTs      uint64
 	Cache       int
-	Attr        string
+	Attr        string // DQL的标签属性，如has（age）中的age，注意对于 query ZZLQuery($myName : string ="zzlname") 这种定义的myName变量，是存储在SrcFunc.Args之中的
 	UnknownAttr bool
 	// read only parameters which are populated before the execution of the query and are used to
 	// execute this query.
@@ -300,10 +301,10 @@ type SubGraph struct {
 	LangTags     []*pb.LangList
 
 	// SrcUIDs is a list of unique source UIDs. They are always copies of destUIDs of parent nodes in GraphQL structure.
-	// SrcUID是唯一源UID的列表。它们始终是GraphQL结构中父节点的destUID的副本。
+	// 保存当前层subGraph的待查寻uid节点列表，它们始终是GraphQL结构中父节点的destUID的副本。
 	SrcUIDs *pb.List
 	// SrcFunc specified using func. Should only be non-nil at root. At other levels, filters are used.
-	// 使用func指定SrcFunc。根上只能是非nil。在其他级别，使用过滤器。
+	// 保存当前层subGraph的DQL函数信息，如 has（age） 的has，使用func指定SrcFunc。根上只能是非nil。在其他级别，使用过滤器。
 	SrcFunc *Function
 
 	FilterOp     string
@@ -312,7 +313,7 @@ type SubGraph struct {
 	MathExp      *mathTree
 	Children     []*SubGraph // children of the current node, should be empty for leaf nodes.//对于叶节点，当前节点的子节点应为空。
 
-	// destUIDs is a list of destination UIDs, after applying filters, pagination. //destUID是应用过滤器、分页后的目标UID列表。
+	// destUIDs is a list of destination UIDs, after applying filters, pagination. //destUID是应用过滤器、分页后的目标UID列表（即当前层subGraph查询出来的结果），供下级subgraph进行查询使用。
 	DestUIDs *pb.List
 	List     bool // whether predicate is of list type //谓词是否为列表类型
 
@@ -928,31 +929,34 @@ func toFacetsFilter(gft *dql.FilterTree) (*pb.FilterTree, error) {
 }
 
 // createTaskQuery generates the query buffer.
+// createTaskQuery生成查询任务对象
 func createTaskQuery(ctx context.Context, sg *SubGraph) (*pb.Query, error) {
-	namespace, err := x.ExtractNamespace(ctx)
+	namespace, err := x.ExtractNamespace(ctx) // 从当前的全局查询环境中解析出命名空间（属性空间），即比如得到DQL中设置的一些变量
 	if err != nil {
 		return nil, errors.Wrapf(err, "While creating query task")
 	}
 	attr := sg.Attr
 	// Might be safer than just checking first byte due to i18n
-	reverse := strings.HasPrefix(attr, "~")
+	reverse := strings.HasPrefix(attr, "~") // 判断是否要反转
 	if reverse {
-		attr = strings.TrimPrefix(attr, "~")
+		attr = strings.TrimPrefix(attr, "~") // 已判断出要反转，将属性标签头的 ～ 符号移除
 	}
-	var srcFunc *pb.SrcFunction
+
+	// 下面这一块创建当前层具体的函数对象
+	var srcFunc *pb.SrcFunction 
 	if sg.SrcFunc != nil {
 		srcFunc = &pb.SrcFunction{}
 		srcFunc.Name = sg.SrcFunc.Name
-		srcFunc.IsCount = sg.SrcFunc.IsCount
-		for _, arg := range sg.SrcFunc.Args {
-			srcFunc.Args = append(srcFunc.Args, arg.Value)
+		srcFunc.IsCount = sg.SrcFunc.IsCount // 是否是gt(count(friends),0)这种的查询
+		for _, arg := range sg.SrcFunc.Args { // 遍历添加查询函数所包含的变量，就是DQL的query那一行用$定义的一些变量，如query ZZLQuery($myName : string ="zzlname")（不是指name等标签，这些标签在SubGraph.Attr中存储）
+			srcFunc.Args = append(srcFunc.Args, arg.Value) // 注意这里只是把value压进去了
 			if arg.IsValueVar {
 				return nil, errors.Errorf("Unsupported use of value var")
 			}
 		}
 	}
 
-	// If the lang is set to *, query all the languages.
+	// If the lang is set to *, query all the languages.//如果lang设置为*，则查询所有语言。
 	if len(sg.Params.Langs) == 1 && sg.Params.Langs[0] == "*" {
 		sg.Params.ExpandAll = true
 	}
@@ -977,7 +981,7 @@ func createTaskQuery(ctx context.Context, sg *SubGraph) (*pb.Query, error) {
 	}
 
 	if sg.SrcUIDs != nil {
-		out.UidList = sg.SrcUIDs
+		out.UidList = sg.SrcUIDs // 将当前层待查寻的uid列表赋值给查询任务
 	}
 	return out, nil
 }
@@ -2085,9 +2089,10 @@ func expandSubgraph(ctx context.Context, sg *SubGraph) ([]*SubGraph, error) {
 
 // ProcessGraph processes the SubGraph instance accumulating result for the query
 // from different instances. Note: taskQuery is nil for root node.
+// ProcessGraph处理来自不同实例的查询结果的SubGraph实例。注意：根节点的taskQuery为nil。
 func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 	var suffix string
-	if len(sg.Params.Alias) > 0 {
+	if len(sg.Params.Alias) > 0 { // 拼接别名
 		suffix += "." + sg.Params.Alias
 	}
 	if len(sg.Attr) > 0 {
@@ -2101,37 +2106,45 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 		// We dont need to call ProcessGraph for uid, as we already have uids
 		// populated from parent and there is nothing to process but uidMatrix
 		// and values need to have the right sizes so that preTraverse works.
+		// 我们不需要为查询属性为uid的子图调用ProcessGraph，因为我们已经从父级填充了uid（即已经在传进来的时候就已经知道了），除了uidMatrix和值需要具有正确的大小才能使preTraverse工作外，没有什么需要处理的。
 		sg.appendDummyValues()
 		rch <- nil
 		return
 	}
 	var err error
 	switch {
+	//下面这个case处理用户传入DQL转换而成的顶级SubGraph，且其查询函数需要是uid
 	case parent == nil && sg.SrcFunc != nil && sg.SrcFunc.Name == "uid":
 		// I'm root and I'm using some variable that has been populated.
 		// Retain the actual order in uidMatrix. But sort the destUids.
+		//我是root（即顶级SubGraph，且满足SrcFunc为uid类别），我正在使用一些已填充的变量。
+		//在uidMatrix中保持实际顺序。但对目标进行排序。
 		if sg.SrcUIDs != nil && len(sg.SrcUIDs.Uids) != 0 {
 			// I am root. I don't have any function to execute, and my
 			// result has been prepared for me already by list passed by the user.
 			// uidmatrix retains the order. SrcUids are sorted (in newGraph).
-			sg.DestUIDs = sg.SrcUIDs
+			// 我是顶级SubGraph。我没有任何要执行的函数，我的结果已经由用户传递的列表为我准备好了。uidmatrix保持顺序。SrcUids被排序（在newGraph中）。
+			sg.DestUIDs = sg.SrcUIDs // 用户传入的uid列表就是当前层查询出来的UID列表（供下级subGraph使用）
 		} else {
 			// Populated variable.
+			// 填充变量。
 			o := append(sg.DestUIDs.Uids[:0:0], sg.DestUIDs.Uids...)
-			sg.uidMatrix = []*pb.List{{Uids: o}}
-			sort.Slice(sg.DestUIDs.Uids, func(i, j int) bool {
+			sg.uidMatrix = []*pb.List{{Uids: o}}  // 这个uidMatrix列表存的是o内每个uid节点的出边列表
+			sort.Slice(sg.DestUIDs.Uids, func(i, j int) bool { // 对UID进行从小到大排序
 				return sg.DestUIDs.Uids[i] < sg.DestUIDs.Uids[j]
 			})
 		}
-		if sg.Params.AfterUID > 0 {
+		if sg.Params.AfterUID > 0 { // 如果设置了结果节点的uid必须大于AfterUID，就直接截取
 			i := sort.Search(len(sg.DestUIDs.Uids),
 				func(i int) bool { return sg.DestUIDs.Uids[i] > sg.Params.AfterUID })
 			sg.DestUIDs.Uids = sg.DestUIDs.Uids[i:]
 		}
 
+	// 下面这个case处理无属性的情况，一般下级子图查询的时候，都是按照uid进行查询的，所以一般都会进到这里面（当然还有只有过滤器的情况，这个就是本case最后一行要处理的事情）
 	case sg.Attr == "":
 		// This is when we have uid function in children.
-		if sg.SrcFunc != nil && sg.SrcFunc.Name == "uid" {
+		// 这就是我们在child中使用uid函数的时候。
+		if sg.SrcFunc != nil && sg.SrcFunc.Name == "uid" { // 情况正常，进行查询
 			// If its a uid() filter, we just have to intersect the SrcUIDs with DestUIDs
 			// and return.
 			if err := sg.fillVars(sg.Params.ParentVars); err != nil {
@@ -2143,7 +2156,7 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 			return
 		}
 
-		if sg.SrcUIDs == nil {
+		if sg.SrcUIDs == nil { // 是下级子图查询，按理来说应该是按照uid进行查询的，但没有要查的uid列表，报错返回！
 			glog.Errorf("SrcUIDs is unexpectedly nil. Subgraph: %+v", sg)
 			rch <- errors.Errorf("SrcUIDs shouldn't be nil.")
 			return
@@ -2153,20 +2166,25 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 		// This is to allow providing SrcUIDs to the filter children.
 		// Each filter use it's own (shallow) copy of SrcUIDs, so there is no race conditions,
 		// when multiple filters replace their sg.DestUIDs
+		// 如果我们有一个只包含运算符的过滤器SubGraph，它将没有任何属性可供处理。
+		// 这是为了允许向过滤器子级提供SrcUID。
+		// 每个过滤器都使用自己的（浅）SrcUID副本，因此当多个过滤器替换它们的sg.DestUID时，没有竞争条件
 		sg.DestUIDs = &pb.List{Uids: sg.SrcUIDs.Uids}
+
+	// 其余情况会进入这里
 	default:
-		isInequalityFn := sg.SrcFunc != nil && isInequalityFn(sg.SrcFunc.Name)
+		isInequalityFn := sg.SrcFunc != nil && isInequalityFn(sg.SrcFunc.Name) // 判断是否是eq等比较查询
 		switch {
-		case isInequalityFn && sg.SrcFunc.IsValueVar:
-			// This is a ineq function which uses a value variable.
+		// 这是一个使用值变量的比较函数（如eq，gt，lt等）。
+		case isInequalityFn && sg.SrcFunc.IsValueVar: 
 			err = sg.applyIneqFunc()
 			if parent != nil {
 				rch <- err
 				return
 			}
 		case isInequalityFn && sg.SrcFunc.IsLenVar:
-			// Safe to access 0th element here because if no variable was given, parser would throw
-			// an error.
+			// Safe to access 0th element here because if no variable was given, parser would throw an error.
+			// 在这里访问第0个元素是安全的，因为如果没有给出变量，解析器会抛出错误。
 			val := sg.SrcFunc.Args[0].Value
 			src := types.Val{Tid: types.StringID, Value: []byte(val)}
 			dst, err := types.Convert(src, types.IntID)
@@ -2182,12 +2200,14 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 			} else {
 				sg.DestUIDs.Uids = nil
 			}
+		// 当非比较时
 		default:
 			taskQuery, err := createTaskQuery(ctx, sg) // NOTE:核心操作，创建一个查询任务
-			if err != nil {
+			if err != nil { // 如果创建查询任务失败了
 				rch <- err
 				return
 			}
+			// zzlTODO:看到这里了
 			result, err := worker.ProcessTaskOverNetwork(ctx, taskQuery) // NOTE:核心操作， Alpha 被分割到不同的组里（组内每个alpha数据一样），所以 ProcessTaskOverNetwork 先获取当前查询所属的组ID, 然后判断是不是在当前实例上, 如果是则执行立即processTask, 否则发起 RPC 远程调用。
 			switch {
 			case err != nil && strings.Contains(err.Error(), worker.ErrNonExistentTabletMessage):
@@ -2229,6 +2249,7 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 					// DesitUIDs for this level becomes the sourceUIDs for the next level. In updateUidMatrix with cascade,
 					// we end up modifying the first list from the uidMatrix which ends up modifying the srcUids of the next level.
 					// So to avoid that we make a copy.
+					// 此级别的DesitUID将成为下一级别的源UID。在带有级联的updateUidMatrix中，我们最终修改了uidMatrix中的第一个列表，这最终修改了下一级的srcUids。为了避免这种情况，我们复制了一份。
 					newDestUIDList := &pb.List{Uids: make([]uint64, 0, len(sg.DestUIDs.Uids))}
 					newDestUIDList.Uids = append(newDestUIDList.Uids, sg.DestUIDs.GetUids()...)
 					sg.uidMatrix = []*pb.List{newDestUIDList}
@@ -2807,7 +2828,7 @@ func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 	// Vars stores the processed variables. //Vars存储已处理的变量。
 	req.Vars = make(map[string]varValue)
 	loopStart := time.Now() // 记录开始时间
-	queries := req.DqlQuery.Query // zzlTODO:看到这里了！
+	queries := req.DqlQuery.Query
 	// first loop converts queries to SubGraph representation and populates ReadTs And Cache.
 	// 第一个循环将查询的语句转换为顶层subGraph查询视图，并且将其放到req中（即完成了 query.Request.GqlQuery.Query 到 query.SubGraph 的转换），并填充ReadTs和Cache。
 	for i := range queries {
@@ -2865,6 +2886,7 @@ func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 	// 下面就是本函数的主要执行模块--大循环
 	for i := 0; i < len(req.Subgraphs) && numQueriesDone < len(req.Subgraphs); i++ {
 		// 这个for是依次处理各个顶层SubGraph，有这个循环主要是因为每个顶层SubGraph之间可能有查询前置的关系，如果各个顶层SubGraph没有前置关系，则应该是会在一轮循环中查询出所有结果
+
 		errChan := make(chan error, len(req.Subgraphs))
 		var idxList []int
 		// If we have N blocks in a query, it can take a maximum of N iterations for all of them
@@ -2872,7 +2894,7 @@ func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 		// 如果查询中有N个块（即N个顶层SubGraph），则最多需要N次迭代才能执行所有块。
 		// 注意每轮执行上面的大循环时，都会在每轮中更新所有的顶层子图的执行状态（即下面这个小循环）
 		for idx := range req.Subgraphs {
-			if hasExecuted[idx] {
+			if hasExecuted[idx] { // 如果已经开始执行了，那就直接跳出
 				continue
 			}
 			sg := req.Subgraphs[idx]
@@ -2911,8 +2933,7 @@ func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 				continue
 			}
 
-			// NOTE:shortestPath 和 recurse 里最终都会调用到ProcessGraph。 接下来就是使用通道阻塞, 等待 ProcessGraph 的处理结果
-			// zzlTODO:看到这里了！！
+			// NOTE:shortestPath 和 recurse 里最终都会调用到ProcessGraph（在expandXXX函数里面）。 接下来就是使用通道阻塞, 等待 ProcessGraph 的处理结果
 			switch {
 			case sg.Params.Alias == "shortest":
 				// We allow only one shortest path block per query.
@@ -2921,12 +2942,12 @@ func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 					shortestSg, err = shortestPath(ctx, sg)  // NOTE:核心操作，最短路径查询
 					errChan <- err
 				}()
-			case sg.Params.Recurse:
+			case sg.Params.Recurse: // 本次查询是否是递归查询
 				go func() {
 					errChan <- recurse(ctx, sg) // NOTE:核心操作
 				}()
 			default:
-				go ProcessGraph(ctx, sg, nil, errChan) // NOTE:核心操作
+				go ProcessGraph(ctx, sg, nil, errChan) // NOTE:核心操作，处理满足前置查询条件的各个subGraph
 			}
 		}
 
