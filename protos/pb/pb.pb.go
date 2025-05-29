@@ -716,7 +716,7 @@ type Query struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Attr     string   `protobuf:"bytes,1,opt,name=attr,proto3" json:"attr,omitempty"`
+	Attr     string   `protobuf:"bytes,1,opt,name=attr,proto3" json:"attr,omitempty"`  // 里面放的是标签属性（指谓词）
 	Langs    []string `protobuf:"bytes,2,rep,name=langs,proto3" json:"langs,omitempty"`                         // language list for attribute
 	AfterUid uint64   `protobuf:"fixed64,3,opt,name=after_uid,json=afterUid,proto3" json:"after_uid,omitempty"` // Only return UIDs greater than this.
 	DoCount  bool     `protobuf:"varint,4,opt,name=do_count,json=doCount,proto3" json:"do_count,omitempty"`     // Are we just getting lengths?
@@ -964,8 +964,8 @@ type Result struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	UidMatrix     []*List           `protobuf:"bytes,1,rep,name=uid_matrix,json=uidMatrix,proto3" json:"uid_matrix,omitempty"`
-	ValueMatrix   []*ValueList      `protobuf:"bytes,2,rep,name=value_matrix,json=valueMatrix,proto3" json:"value_matrix,omitempty"`
+	UidMatrix     []*List           `protobuf:"bytes,1,rep,name=uid_matrix,json=uidMatrix,proto3" json:"uid_matrix,omitempty"` // 存本次查询出来的节点的uid
+	ValueMatrix   []*ValueList      `protobuf:"bytes,2,rep,name=value_matrix,json=valueMatrix,proto3" json:"value_matrix,omitempty"`  // 存谓词指向的值
 	Counts        []uint32          `protobuf:"varint,3,rep,packed,name=counts,proto3" json:"counts,omitempty"`
 	IntersectDest bool              `protobuf:"varint,4,opt,name=intersect_dest,json=intersectDest,proto3" json:"intersect_dest,omitempty"`
 	FacetMatrix   []*FacetsList     `protobuf:"bytes,5,rep,name=facet_matrix,json=facetMatrix,proto3" json:"facet_matrix,omitempty"`
@@ -2055,7 +2055,7 @@ type Tablet struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	GroupId           uint32 `protobuf:"varint,1,opt,name=groupId,proto3" json:"groupId,omitempty"` // Served by which group.
+	GroupId           uint32 `protobuf:"varint,1,opt,name=groupId,proto3" json:"groupId,omitempty"` // Served by which group.存储在哪个group中
 	Predicate         string `protobuf:"bytes,2,opt,name=predicate,proto3" json:"predicate,omitempty"`
 	Force             bool   `protobuf:"varint,3,opt,name=force,proto3" json:"force,omitempty"` // Used while moving predicate.
 	OnDiskBytes       int64  `protobuf:"varint,7,opt,name=on_disk_bytes,json=onDiskBytes,proto3" json:"on_disk_bytes,omitempty"`

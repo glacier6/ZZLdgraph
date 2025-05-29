@@ -2090,6 +2090,7 @@ func expandSubgraph(ctx context.Context, sg *SubGraph) ([]*SubGraph, error) {
 // ProcessGraph processes the SubGraph instance accumulating result for the query
 // from different instances. Note: taskQuery is nil for root node.
 // ProcessGraph处理来自不同实例的查询结果的SubGraph实例。注意：根节点的taskQuery为nil。
+// 且需要注意的是，这个函数会根据DQL的本层查询内有几个谓词来运行几次，当前找的谓词存储在sg.Attr中
 func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 	var suffix string
 	if len(sg.Params.Alias) > 0 { // 拼接别名
@@ -2140,7 +2141,7 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 			sg.DestUIDs.Uids = sg.DestUIDs.Uids[i:]
 		}
 
-	// 下面这个case处理无属性的情况，一般下级子图查询的时候，都是按照uid进行查询的，所以一般都会进到这里面（当然还有只有过滤器的情况，这个就是本case最后一行要处理的事情）
+	// 下面这个case处理无标签属性（谓词）的情况，一般下级子图查询的时候，都是按照uid进行查询的，所以一般都会进到这里面（当然还有只有过滤器的情况，这个就是本case最后一行要处理的事情）
 	case sg.Attr == "":
 		// This is when we have uid function in children.
 		// 这就是我们在child中使用uid函数的时候。
@@ -2207,8 +2208,10 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 				rch <- err
 				return
 			}
-			// zzlTODO:看到这里了
-			result, err := worker.ProcessTaskOverNetwork(ctx, taskQuery) // NOTE:核心操作， Alpha 被分割到不同的组里（组内每个alpha数据一样），所以 ProcessTaskOverNetwork 先获取当前查询所属的组ID, 然后判断是不是在当前实例上, 如果是则执行立即processTask, 否则发起 RPC 远程调用。
+			// 每执行一次ProcessTaskOverNetwork（通常是按照谓词来一次一次执行），就会得到一些最终数据
+			result, err := worker.ProcessTaskOverNetwork(ctx, taskQuery) // NOTE:核心操作， Alpha 被分割到不同的组里（组内每个alpha数据一样），所以 ProcessTaskOverNetwork 先获取当前查询的谓词所属的组ID, 然后判断是不是在当前实例上, 如果是则执行立即processTask, 否则发起 RPC 远程调用。
+			// var xxxxx=sg.Attr
+			// fmt.Print(xxxxx)
 			switch {
 			case err != nil && strings.Contains(err.Error(), worker.ErrNonExistentTabletMessage):
 				sg.UnknownAttr = true
@@ -2843,7 +2846,7 @@ func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 		if err != nil {
 			return errors.Wrapf(err, "while converting to subgraph")
 		}
-		sg.recurse(func(sg *SubGraph) {  // 递归的给当前顶层查询subGraph设置时间戳与cache
+		sg.recurse(func(sg *SubGraph) {  // 递归的给当前顶层查询subGraph设置时间戳与是否使用cache
 			sg.ReadTs = req.ReadTs
 			sg.Cache = req.Cache
 		})
@@ -2947,7 +2950,7 @@ func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 					errChan <- recurse(ctx, sg) // NOTE:核心操作
 				}()
 			default:
-				go ProcessGraph(ctx, sg, nil, errChan) // NOTE:核心操作，处理满足前置查询条件的各个subGraph
+				go ProcessGraph(ctx, sg, nil, errChan) // NOTE:核心操作，处理满足前置查询条件的各个顶级subGraph，主要是提供一个当前顶级子图查询的开始起点，后续的是通过内部迭代不断完善最终得出结果
 			}
 		}
 

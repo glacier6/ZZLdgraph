@@ -187,6 +187,8 @@ type oracle struct {
 	// snapshot, we need to know the minimum start ts present in the map, which represents a
 	// mutation which has not yet been committed or aborted.  As we iterate over entries, we should
 	// only discard those whose StartTs is below this minimum pending start ts.
+	// 根据突变，跟踪我们迄今为止看到的所有startTs。然后，当事务被提交或中止时，我们会从startTs映射中删除条目。
+	// 在拍摄快照时，我们需要知道映射中存在的最小开始ts，这表示尚未提交或中止的突变。当我们迭代条目时，我们应该只丢弃那些StartTs低于此最小待定StartTs的条目。
 	pendingTxns map[uint64]*Txn
 
 	// Used for waiting logic for transactions with startTs > maxpending so that we don't read an
@@ -215,11 +217,11 @@ func (o *oracle) RegisterStartTs(ts uint64) *Txn {
 func (o *oracle) CacheAt(ts uint64) *LocalCache {
 	o.RLock()
 	defer o.RUnlock()
-	txn, ok := o.pendingTxns[ts]
+	txn, ok := o.pendingTxns[ts] // 根据ReadTs获取事物对象
 	if !ok {
 		return nil
 	}
-	return txn.cache
+	return txn.cache // 返回当前事物的LocalCache对象
 }
 
 // MinPendingStartTs returns the min start ts which is currently pending a commit or abort decision.

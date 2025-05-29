@@ -67,6 +67,8 @@ func GetNoStore(key []byte, readTs uint64) (rlist *List, err error) {
 // LocalCache stores a cache of posting lists and deltas.
 // This doesn't sync, so call this only when you don't care about dirty posting lists in
 // memory(for example before populating snapshot) or after calling syncAllMarks
+// LocalCache存储postingLists和增量的缓存。
+// 这不会同步，因此仅当您不关心内存中的脏发布列表时（例如在填充快照之前）或在调用syncAllMarks之后才调用此函数
 type LocalCache struct {
 	sync.RWMutex
 
@@ -143,6 +145,7 @@ func NewLocalCache(startTs uint64) *LocalCache {
 
 // NoCache returns a new LocalCache instance, which won't cache anything. Useful to pass startTs
 // around.
+// NoCache返回一个新的LocalCache实例，该实例不会缓存任何内容。传递startTs很有用。
 func NoCache(startTs uint64) *LocalCache {
 	return &LocalCache{startTs: startTs}
 }

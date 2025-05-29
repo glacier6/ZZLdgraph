@@ -43,9 +43,9 @@ import (
 type groupi struct {
 	x.SafeMutex
 	state        *pb.MembershipState
-	Node         *node
-	gid          uint32
-	tablets      map[string]*pb.Tablet
+	Node         *node  //当前群组工作的woker节点
+	gid          uint32  //当前处理节点所处的group的id
+	tablets      map[string]*pb.Tablet // 一个tablets（平板）对应一个单一谓词存储
 	triggerCh    chan struct{} // Used to trigger membership sync
 	blockDeletes *sync.Mutex   // Ensure that deletion won't happen when move is going on.
 	closer       *z.Closer
@@ -63,6 +63,8 @@ var gr = &groupi{
 }
 
 func groups() *groupi {
+	// var xxx = gr
+	// fmt.Print(xxx)
 	return gr
 }
 
@@ -425,6 +427,8 @@ func (g *groupi) BelongsTo(key string) (uint32, error) {
 // The ts passed should be the start ts of the query, so this method can compare that against a
 // tablet move timestamp. If the tablet was moved to this group after the start ts of the query, we
 // should reject that query.
+// BelongsToReadOnly的行为类似于BelongsTo，除了如果当前没有组为tablet提供key，它不会要求zero为tablet服务。
+// 传递的ts应该是查询的开始ts，因此此方法可以将其与tablet移动时间戳进行比较。如果tablet在查询开始后移动到此组，我们应该拒绝该查询。
 func (g *groupi) BelongsToReadOnly(key string, ts uint64) (uint32, error) {
 	g.RLock()
 	tablet := g.tablets[key]

@@ -136,8 +136,8 @@ func processWithBackupRequest(
 // ProcessTaskOverNetwork用于处理查询，并从存储查询中谓词对应的过账列表的实例中获取结果。
 // 该函数先获取当前查询所属的组 ID, 然后判断是不是在当前alpha上, 如果是则执行立即processTask, 否则发起 RPC 远程调用。
 func ProcessTaskOverNetwork(ctx context.Context, q *pb.Query) (*pb.Result, error) {
-	attr := q.Attr
-	gid, err := groups().BelongsToReadOnly(attr, q.ReadTs) // 先获取当前查询的结果所属的组 ID
+	attr := q.Attr // 获取DQL中定义的标签属性（即谓词）
+	gid, err := groups().BelongsToReadOnly(attr, q.ReadTs) // groups()函数获取全局的组对象，然后再调用BelongsToReadOnly得到目标谓词的所属group组ID
 	switch {
 	case err != nil:
 		return nil, err
@@ -151,10 +151,10 @@ func ProcessTaskOverNetwork(ctx context.Context, q *pb.Query) (*pb.Result, error
 			attr, gid, q.ReadTs, groups().Node.Id)
 	}
 
-	if groups().ServesGroup(gid) { //如果在当前组
+	if groups().ServesGroup(gid) { //如果目标谓词所在的组ID与当前组ID一样，就直接本地查询
 		// No need for a network call, as this should be run from within this instance.
 		// 不需要网络调用，因为这应该在此实例中运行。
-		return processTask(ctx, q, gid)
+		return processTask(ctx, q, gid) // NOTE:核心操作，直接本地查询
 	}
 
 	result, err := processWithBackupRequest(ctx, gid, //NOTE:核心操作，不在当前组，此时应该发起RPC远程调用
@@ -984,14 +984,14 @@ func (qs *queryState) handleUidPostings(
 }
 
 const (
-	// UseTxnCache indicates the transaction cache should be used.
+	// UseTxnCache indicates the transaction cache should be used. UseTxnCache表示应使用事务缓存。
 	UseTxnCache = iota
-	// NoCache indicates no caches should be used.NoCache表示不应使用缓存。
+	// NoCache indicates no caches should be used. NoCache表示不应使用缓存。
 	NoCache
 )
 
 // processTask processes the query, accumulates and returns the result.
-// processTask处理查询，累加并返回结果。
+// processTask处理当前谓词查询，累加并返回结果。
 func processTask(ctx context.Context, q *pb.Query, gid uint32) (*pb.Result, error) {
 	ctx, span := otrace.StartSpan(ctx, "processTask."+q.Attr)
 	defer span.End()
@@ -1014,13 +1014,14 @@ func processTask(ctx context.Context, q *pb.Query, gid uint32) (*pb.Result, erro
 	}
 	span.Annotatef(nil, "Done waiting for checksum match")
 
+	//下面这一块应该只是增强某种健壮性的代码，避免特殊情况的出现
 	// If a group stops serving tablet and it gets partitioned away from group
 	// zero, then it wouldn't know that this group is no longer serving this
 	// predicate. There's no issue if a we are serving a particular tablet and
 	// we get partitioned away from group zero as long as it's not removed.
 	// BelongsToReadOnly is called instead of BelongsTo to prevent this alpha
 	// from requesting to serve this tablet.
-	// 如果一个组停止为tablet提供服务，并且它被从组0中分区出来，那么它就不会知道这个组不再为这个谓词提供服务。
+	// 如果一个组停止为某个tablet提供服务，并且它被从组0中分区出来，那么它就不会知道这个组不再为这个谓词提供服务。
 	// 如果我们正在为特定的tablet提供服务，并且只要它没有被删除，我们就可以从零组分区。
 	// 调用BelongsToReadOnly而不是BelongsTo，以防止此alpha请求提供此tablet。
 	knownGid, err := groups().BelongsToReadOnly(q.Attr, q.ReadTs)
@@ -1033,17 +1034,16 @@ func processTask(ctx context.Context, q *pb.Query, gid uint32) (*pb.Result, erro
 		return nil, errUnservedTablet
 	}
 
-	var qs queryState
+	var qs queryState // 查询的状态的暂时保存，本质是一个LocalCache
 	if q.Cache == UseTxnCache {
-		qs.cache = posting.Oracle().CacheAt(q.ReadTs)
+		qs.cache = posting.Oracle().CacheAt(q.ReadTs) // oracle是一个全局的管理事物的对象
 	}
 	if qs.cache == nil {
-		qs.cache = posting.NoCache(q.ReadTs)
+		qs.cache = posting.NoCache(q.ReadTs) // 创建一个本地缓存，但是这个缓存只用来存储当前查询任务的ReadTs（startTs）
 	}
-	// For now, remove the query level cache. It is causing contention for queries with high
-	// fan-out.
-	// 现在，删除查询级缓存。这导致了对高扇出查询的争用。
-	out, err := qs.helpProcessTask(ctx, q, gid) // NOTE:核心操作，真正的查询在此
+	// For now, remove the query level cache. It is causing contention for queries with high fan-out.
+	// 到现在为止，删除查询级缓存。这导致了对高扇出查询的争用。
+	out, err := qs.helpProcessTask(ctx, q, gid) // NOTE:核心操作，真正的查询在此（zzlTODO:看到这里了）
 	if err != nil {
 		return nil, err
 	}
