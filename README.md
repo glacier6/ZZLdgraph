@@ -148,7 +148,7 @@
           }
         }
       ```
-  - 99.2 普通的mutation，新增与删除
+  - 99.2 普通的RDF的mutation，新增与删除（以前常用的那种是JSON格式的）
     普通新增块
     ```bash
     {
@@ -170,7 +170,7 @@
     }
     ```
 
-  - 7.3 修改查询整合结构体upsert
+  - 99.3 修改查询整合结构体RDF的upsert（以前常用的那种是JSON格式的）
     ```bash
     upsert { // upsert是固定词
       query { // query是固定词，一般这个query都用来得到变量，注意一个upsert块仅支持有一个query块

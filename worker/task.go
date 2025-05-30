@@ -303,6 +303,8 @@ func needsIndex(fnType FuncType, uidList *pb.List) bool {
 // are collected. This is needed for functions that require all values to  match, like
 // "allofterms", "alloftext", and custom functions with "allof".
 // Returns true if function results need intersect, false otherwise.
+// needsIntersect检查函数类型是否需要algo。收集结果后使用IntersectSorted（）。对于需要所有值匹配的函数，如“allofterms”、“alloftext”和带有“allof”的自定义函数，这是必需的。
+// 如果函数结果需要相交，则返回true，否则返回false。
 func needsIntersect(fnName string) bool {
 	return strings.HasPrefix(fnName, "allof") || strings.HasSuffix(fnName, "allof")
 }
@@ -763,21 +765,24 @@ func retrieveUidsAndFacets(args funcArgs, pl *posting.List, facetsTree *facetsTr
 
 // This function handles operations on uid posting lists. Index keys, reverse keys and some data
 // keys store uid posting lists.
+// 此函数处理uid posting lists上的操作。索引键、反向键和一些数据键存储uid发布列表。
 func (qs *queryState) handleUidPostings(
 	ctx context.Context, args funcArgs, opts posting.ListOptions) error {
-	srcFn := args.srcFn
-	q := args.q
+	srcFn := args.srcFn // 获取查询函数对象
+	q := args.q  // 获取查询任务对象
 
-	facetsTree, err := preprocessFilter(q.FacetsFilter)
+	//得到facet树
+	facetsTree, err := preprocessFilter(q.FacetsFilter) 
 	if err != nil {
 		return err
 	}
 
+	//下面这一块是记录一些状态与操作时间间隔
 	span := otrace.FromContext(ctx)
-	stop := x.SpanTimer(span, "handleUidPostings")
+	stop := x.SpanTimer(span, "handleUidPostings") // SpanTimer返回一个函数，用于记录给定跨度的持续时间。
 	defer stop()
 	if span != nil {
-		span.Annotatef(nil, "Number of uids: %d. args.srcFn: %+v", srcFn.n, args.srcFn)
+		span.Annotatef(nil, "Number of uids: %d. args.srcFn: %+v", srcFn.n, args.srcFn) // 添加一个带有属性的注释
 	}
 	if srcFn.n == 0 {
 		return nil
@@ -796,6 +801,7 @@ func (qs *queryState) handleUidPostings(
 	}
 
 	// Divide the task into many goroutines.
+	// 将任务划分为多个协程来处理
 	numGo, width := x.DivideAndRule(srcFn.n)
 	x.AssertTrue(width > 0)
 	span.Annotatef(nil, "Width: %d. NumGo: %d", width, numGo)
@@ -807,7 +813,7 @@ func (qs *queryState) handleUidPostings(
 	errCh := make(chan error, numGo)
 	outputs := make([]*pb.Result, numGo)
 
-	calculate := func(start, end int) error {
+	calculate := func(start, end int) error { // zzlTODO:看到这里了，本地查询-UID查询最最核心的代码，还有网络查询与本地查询-值查询两个要看
 		x.AssertTrue(start%width == 0)
 		out := &pb.Result{}
 		outputs[start/width] = out
@@ -953,7 +959,7 @@ func (qs *queryState) handleUidPostings(
 		return nil
 	} // End of calculate function.
 
-	for i := range numGo {
+	for i := range numGo { // 这个for循环是为了开启go协程开始计算任务
 		start := i * width
 		end := start + width
 		if end > srcFn.n {
@@ -963,12 +969,13 @@ func (qs *queryState) handleUidPostings(
 			errCh <- calculate(start, end)
 		}(start, end)
 	}
-	for range numGo {
+	for range numGo {  //这个for循环等待所有go协程完成任务
 		if err := <-errCh; err != nil {
 			return err
 		}
 	}
 	// All goroutines are done. Now attach their results.
+	// 所有的协程都结束了。现在集成他们的结果。
 	out := args.out
 	for _, chunk := range outputs {
 		out.FacetMatrix = append(out.FacetMatrix, chunk.FacetMatrix...)
@@ -1034,16 +1041,16 @@ func processTask(ctx context.Context, q *pb.Query, gid uint32) (*pb.Result, erro
 		return nil, errUnservedTablet
 	}
 
-	var qs queryState // 查询的状态的暂时保存，本质是一个LocalCache
+	var qs queryState // 查询的状态的暂时保存，即缓存，其本质是一个LocalCache对象
 	if q.Cache == UseTxnCache {
-		qs.cache = posting.Oracle().CacheAt(q.ReadTs) // oracle是一个全局的管理事物的对象
+		qs.cache = posting.Oracle().CacheAt(q.ReadTs) // oracle是一个全局的管理事物的对象，分配一个缓存
 	}
 	if qs.cache == nil {
 		qs.cache = posting.NoCache(q.ReadTs) // 创建一个本地缓存，但是这个缓存只用来存储当前查询任务的ReadTs（startTs）
 	}
 	// For now, remove the query level cache. It is causing contention for queries with high fan-out.
 	// 到现在为止，删除查询级缓存。这导致了对高扇出查询的争用。
-	out, err := qs.helpProcessTask(ctx, q, gid) // NOTE:核心操作，真正的查询在此（zzlTODO:看到这里了）
+	out, err := qs.helpProcessTask(ctx, q, gid) // NOTE:核心操作，真正的查询在此
 	if err != nil {
 		return nil, err
 	}
@@ -1057,74 +1064,84 @@ type queryState struct {
 func (qs *queryState) helpProcessTask(ctx context.Context, q *pb.Query, gid uint32) (
 	*pb.Result, error) {
 
+	// FromContext返回存储在上下文中的Span，或者如果没有记录事件，则返回不记录事件的Span。
 	span := otrace.FromContext(ctx)
 	out := new(pb.Result)
 	attr := q.Attr
 
-	srcFn, err := parseSrcFn(ctx, q) // 获取查询函数: parseSrcFn(通过对 parseFuncType 和 parseFuncTypeHelper的调用)
+	srcFn, err := parseSrcFn(ctx, q) // NOTE:核心操作，解析当前查询任务给出查询函数对象并且根据函数类别填充它
 	if err != nil {
 		return nil, err
 	}
 
-	if q.Reverse && !schema.State().IsReversed(ctx, attr) {
+	//下面是结合查询任务与查询函数并且根据schema中现有对谓词的定义来判断当前查询是否合法
+	if q.Reverse && !schema.State().IsReversed(ctx, attr) { // 有关反转边
 		return nil, errors.Errorf("Predicate %s doesn't have reverse edge", x.ParseAttr(attr))
 	}
 
-	if needsIndex(srcFn.fnType, q.UidList) && !schema.State().IsIndexed(ctx, q.Attr) {
+	if needsIndex(srcFn.fnType, q.UidList) && !schema.State().IsIndexed(ctx, q.Attr) { // 有关索引
 		return nil, errors.Errorf("Predicate %s is not indexed", x.ParseAttr(q.Attr))
 	}
 
-	if len(q.Langs) > 0 && !schema.State().HasLang(attr) {
+	if len(q.Langs) > 0 && !schema.State().HasLang(attr) { // 有关多语言的
 		return nil, errors.Errorf("Language tags can only be used with predicates of string type"+
 			" having @lang directive in schema. Got: [%v]", x.ParseAttr(attr))
 	}
-	if len(q.Langs) == 1 && q.Langs[0] == "*" {
+	if len(q.Langs) == 1 && q.Langs[0] == "*" { // 同有关多语言的
 		// Reset the Langs fields. The ExpandAll field is set to true already so there's no
 		// more need to store the star value in this field.
 		q.Langs = nil
 	}
 
-	typ, err := schema.State().TypeOf(attr)
+	typ, err := schema.State().TypeOf(attr) // 得到谓词的属性类别type
 	if err != nil {
 		// All schema checks are done before this, this type is only used to
 		// convert it to schema type before returning.
 		// Schema type won't be present only if there is no data for that predicate
 		// or if we load through bulk loader.
+		// 所有模式检查都在此之前完成，此类型仅用于在返回之前将其转换为模式类型。
+		// 只有当该谓词没有数据或我们通过批量加载器加载时，Schema类型才会出现。
 		typ = types.DefaultID
 	}
-	out.List = schema.State().IsList(attr)
-	srcFn.atype = typ
+	out.List = schema.State().IsList(attr) //IsList返回谓词是否为列表类型。
+	srcFn.atype = typ // 设置查询函数的谓词对象类别
 
-	// Reverse attributes might have more than 1 results even if the original attribute
-	// is not a list.
+	// Reverse attributes might have more than 1 results even if the original attribute is not a list.
+	// 即使原始属性不是列表，反向属性也可能有多个结果。
 	if q.Reverse {
 		out.List = true
 	}
 
+	// ListOptions在List中使用。Uids（在发布中）为每个发布列表定制我们的UID输出列表。这个包裹应该是pb。
 	opts := posting.ListOptions{
 		ReadTs:   q.ReadTs,
 		AfterUid: q.AfterUid,
 		First:    int(q.First + q.Offset),
 	}
 	// If we have srcFunc and Uids, it means its a filter. So we intersect.
+	// 如果我们有srcFunc和Uids，这意味着它是一个过滤器。所以我们相交。
 	if srcFn.fnType != notAFunction && q.UidList != nil && len(q.UidList.Uids) > 0 {
+		// 过滤器filter才会进入这里
+		// var xxx=q.UidList
+		// fmt.Print(xxx)
 		opts.Intersect = q.UidList
 	}
 
 	args := funcArgs{q, gid, srcFn, out}
-	needsValPostings, err := srcFn.needsValuePostings(typ)
+	// needsValuePostings根据谓词的类别来判断获取值的posting lists还是uid的posting lists。（即如果是获取节点的，就为是要获取uid的，此时便为false，否则就是获取谓词对应的宾语的值的，为true）
+	needsValPostings, err := srcFn.needsValuePostings(typ) 
 	if err != nil {
 		return nil, err
 	}
-	// NOTE:下面就是调用对应的函数获取数据
-	if needsValPostings {
+	// NOTE:核心操作，下面俩是最核心的操作，调用对应的函数获取数据（out在args内的，）
+	if needsValPostings { // 如果是要获取值的posting list
 		span.Annotate(nil, "handleValuePostings")
-		if err := qs.handleValuePostings(ctx, args); err != nil {
+		if err := qs.handleValuePostings(ctx, args); err != nil { //NOTE:核心操作，查询目标谓词所对应的值
 			return nil, err
 		}
 	} else {
 		span.Annotate(nil, "handleUidPostings")
-		if err = qs.handleUidPostings(ctx, args, opts); err != nil {
+		if err = qs.handleUidPostings(ctx, args, opts); err != nil { //NOTE:核心操作，查询目标节点的UID
 			return nil, err
 		}
 	}
@@ -1758,9 +1775,9 @@ func matchRegex(value types.Val, regex *cregexp.Regexp) bool {
 }
 
 type functionContext struct {
-	tokens        []string
+	tokens        []string // tokens是一个列表，其内只包含当前函数涉及的一些变量值（包括字面量与变量）
 	geoQuery      *types.GeoQueryData
-	intersectDest bool
+	intersectDest bool // 检查函数类型是否需要algo，如果函数结果需要相交，则返回true，否则返回false。
 	// eqTokens is used by compareAttr functions. It stores values corresponding to each
 	// function argument. There could be multiple arguments to `eq` function but only one for
 	// other compareAttr functions.
@@ -1768,15 +1785,15 @@ type functionContext struct {
 	// really need all of ineqValue, eqTokens, tokens
 	eqTokens       []types.Val
 	ineqValueToken []string
-	n              int
+	n              int // 该值有关查询的数量级问题，可以为len(fc.tokens)（即函数体参数个数），或者len(q.UidList.Uids)（即上层查询传递下来的有多少个uid）
 	threshold      []int64
 	uidsPresent    []uint64
 	fname          string
-	fnType         FuncType
+	fnType         FuncType //当前查询的函数类别，如allofterms为100
 	regex          *cregexp.Regexp
 	isFuncAtRoot   bool
 	isStringFn     bool
-	atype          types.TypeID
+	atype          types.TypeID   //当前查询的谓词属性类别
 	vectorInfo     []float32
 	vectorUid      uint64
 }
@@ -1864,8 +1881,8 @@ func planForEqFilter(fc *functionContext, pred string, uidlist []uint64) {
 }
 
 func parseSrcFn(ctx context.Context, q *pb.Query) (*functionContext, error) {
-	fnType, f := parseFuncType(q.SrcFunc)
-	attr := q.Attr
+	fnType, f := parseFuncType(q.SrcFunc) // 解析出函数类别编号fnType以及函数名（f是如allofterms的函数名）。（如果是普通的查某个谓词，那么fntype为空，f也为空）
+	attr := q.Attr // 这个属性可以是函数体的用于查询的谓词属性，也可以是函数体内部的谓词
 	fc := &functionContext{fnType: fnType, fname: f}
 	isIndexedAttr := schema.State().IsIndexed(ctx, attr)
 	var err error
@@ -1875,8 +1892,9 @@ func parseSrcFn(ctx context.Context, q *pb.Query) (*functionContext, error) {
 		fc.isStringFn = true
 	}
 
+	// 下面这个大Switch是根据当前函数的fnType类别，来填充一些当前函数所需要的一些数据，并且会一些错误校验
 	switch fnType {
-	case notAFunction:
+	case notAFunction: // 如果是普通的谓词查询
 		fc.n = len(q.UidList.Uids)
 	case aggregatorFn:
 		// confirm aggregator could apply on the attributes
@@ -2004,21 +2022,23 @@ func parseSrcFn(ctx context.Context, q *pb.Query) (*functionContext, error) {
 			return nil, err
 		}
 		fc.n = len(q.UidList.Uids)
-	case standardFn, fullTextSearchFn:
+	case standardFn, fullTextSearchFn:  // allofterms会进入到这里
 		// srcfunc 0th val is func name and [2:] are args.
 		// we tokenize the arguments of the query.
-		if err = ensureArgsCount(q.SrcFunc, 1); err != nil {
+		// srcfnc第0个val是函数名，[2:]是参数。
+		// 我们对查询的参数进行标记
+		if err = ensureArgsCount(q.SrcFunc, 1); err != nil { // 验证函数的所需参数数量是否为1个
 			return nil, err
 		}
-		required, found := verifyStringIndex(ctx, attr, fnType)
+		required, found := verifyStringIndex(ctx, attr, fnType) // 验证函数参数的类型以及要查询的谓词是否满足条件（比如allofterms就需要index为term）
 		if !found {
 			return nil, errors.Errorf("Attribute %s is not indexed with type %s", x.ParseAttr(attr),
 				required)
 		}
-		if fc.tokens, err = getStringTokens(q.SrcFunc.Args, langForFunc(q.Langs), fnType); err != nil {
+		if fc.tokens, err = getStringTokens(q.SrcFunc.Args, langForFunc(q.Langs), fnType); err != nil { // tokens是一个列表，其内只包含当前函数涉及的一些变量值（包括直接字面量与变量的值）
 			return nil, err
 		}
-		fc.intersectDest = needsIntersect(f)
+		fc.intersectDest = needsIntersect(f) // 检查函数类型是否需要algo，如果函数结果需要相交，则返回true，否则返回false。
 		fc.n = len(fc.tokens)
 	case matchFn:
 		if err = ensureArgsCount(q.SrcFunc, 2); err != nil {

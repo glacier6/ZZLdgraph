@@ -19,13 +19,41 @@
 }
 
 
-query ZZLQuery($name : string ="zzlname"){
-		find_follower(func:allofterms(name, $name)){
+query ZZLQuery($myname : string ="zzlFunName"){
+		find_follower(func:anyofterms(funName, "zzlFunName zzlFunName2")){
+      funName
+      name 
+      age
+      follows {
+        funName
         name 
-        age
-        follows {
-          name 
-          age 
-        }
+        age 
+      }
     }
 }
+
+增加
+{
+  "set":[
+    {
+      "name": "zzlname",
+      "age": 40,
+      "follows": {
+        "name": "zzlname2",
+        "age": 28,
+        "follows":{
+          "name": "zzlname3",
+          "age": 31
+        }
+      }
+    }
+  ]
+}
+
+
+删除
+    {
+      delete {
+        <0x11172> <follows> <0x11171> .
+      }
+    }

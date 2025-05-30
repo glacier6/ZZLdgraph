@@ -281,6 +281,7 @@ func (s *state) GetType(typeName string) (pb.TypeUpdate, bool) {
 }
 
 // TypeOf returns the schema type of predicate
+// TypeOf返回谓词的schema类型
 func (s *state) TypeOf(pred string) (types.TypeID, error) {
 	s.RLock()
 	defer s.RUnlock()
@@ -490,6 +491,7 @@ func (s *state) PredicatesToDelete(pred string) []string {
 }
 
 // IsList returns whether the predicate is of list type.
+// IsList返回谓词是否为列表类型。
 func (s *state) IsList(pred string) bool {
 	s.RLock()
 	defer s.RUnlock()

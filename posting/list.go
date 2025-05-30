@@ -672,7 +672,7 @@ func (it *pIterator) posting() *pb.Posting {
 type ListOptions struct {
 	ReadTs    uint64
 	AfterUid  uint64   // Any UIDs returned must be after this value.
-	Intersect *pb.List // Intersect results with this list of UIDs.
+	Intersect *pb.List // Intersect results with this list of UIDs. //将结果与此UID列表相交。
 	First     int
 }
 

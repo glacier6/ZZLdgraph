@@ -266,7 +266,7 @@ type Function struct {
 type SubGraph struct {
 	ReadTs      uint64
 	Cache       int
-	Attr        string // DQL的标签属性，如has（age）中的age，注意对于 query ZZLQuery($myName : string ="zzlname") 这种定义的myName变量，是存储在SrcFunc.Args之中的
+	Attr        string // DQL的标签属性，如has（age）中的age，(或者是函数体内部的各个标签属性)注意对于 query ZZLQuery($myName : string ="zzlname") 这种定义的myName变量，是存储在SrcFunc.Args之中的
 	UnknownAttr bool
 	// read only parameters which are populated before the execution of the query and are used to
 	// execute this query.
@@ -2090,7 +2090,7 @@ func expandSubgraph(ctx context.Context, sg *SubGraph) ([]*SubGraph, error) {
 // ProcessGraph processes the SubGraph instance accumulating result for the query
 // from different instances. Note: taskQuery is nil for root node.
 // ProcessGraph处理来自不同实例的查询结果的SubGraph实例。注意：根节点的taskQuery为nil。
-// 且需要注意的是，这个函数会根据DQL的本层查询内有几个谓词来运行几次，当前找的谓词存储在sg.Attr中
+// 且需要注意的是，这个函数会根据DQL的本层查询内有a个谓词，函数体上有b个谓词，来运行a+b次（注意未排除重复的谓词以及有缓存不会进入这里的次数），当前找的谓词存储在sg.Attr中
 func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 	var suffix string
 	if len(sg.Params.Alias) > 0 { // 拼接别名

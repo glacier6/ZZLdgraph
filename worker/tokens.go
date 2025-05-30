@@ -67,6 +67,8 @@ func verifyCustomIndex(ctx context.Context, attr string, tokenizerName string) b
 
 // Return string tokens from function arguments. It maps function type to correct tokenizer.
 // Note: regexp functions require regexp compilation of argument, not tokenization.
+// 从函数参数中返回字符串标记。它将函数类型映射到正确的标记器。
+// 注意：正则表达式函数需要对参数进行正则表达式编译，而不是标记化。
 func getStringTokens(funcArgs []string, lang string, funcType FuncType) ([]string, error) {
 	if lang == "." {
 		lang = "en"

@@ -923,6 +923,7 @@ func PredicateLang(s string) (string, string) {
 }
 
 // DivideAndRule is used to divide a number of tasks among multiple go routines.
+// DividerAndRule用于在多个go例程中划分多个任务。
 func DivideAndRule(num int) (numGo, width int) {
 	numGo, width = 64, 0
 	for ; numGo >= 1; numGo /= 2 {
