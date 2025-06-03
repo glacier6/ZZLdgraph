@@ -2947,7 +2947,7 @@ func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 				}()
 			case sg.Params.Recurse: // 本次查询是否是递归查询
 				go func() {
-					errChan <- recurse(ctx, sg) // NOTE:核心操作
+					errChan <- recurse(ctx, sg) // NOTE:核心操作，递归查询
 				}()
 			default:
 				go ProcessGraph(ctx, sg, nil, errChan) // NOTE:核心操作，处理满足前置查询条件的各个顶级subGraph，主要是提供一个当前顶级子图查询的开始起点，后续的是通过内部迭代不断完善最终得出结果

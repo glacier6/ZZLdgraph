@@ -1,0 +1,37 @@
+ssh root@192.168.43.171
+ssh root@192.168.43.236
+
+1.Dgraph
+192.168.43.49 为主节点
+192.168.43.171 为从节点
+zero配置
+dgraph zero --my=192.168.43.49:5080 --replicas 3 --raft idx=1
+dgraph zero -o 1 --my=192.168.43.171:5081 --replicas 3 --peer 192.168.43.49:5080 --raft idx=2
+dgraph zero -o 2 --my=192.168.43.236:5082 --replicas 3 --peer 192.168.43.49:5080 --raft idx=3
+
+alpha（各自管各自的）
+dgraph alpha --my=192.168.43.49:7080 --zero=192.168.43.49:5080
+dgraph alpha --my=192.168.43.171:7081 --zero=192.168.43.171:5081 -o 1
+dgraph alpha --my=192.168.43.236:7082 --zero=192.168.43.236:5082 -o 2
+
+dgraph alpha --my=192.168.43.49:7081 --zero=192.168.43.49:5080 -o 1   //主节点开第二个alpha节点
+dgraph alpha --my=192.168.43.49:7082 --zero=192.168.43.49:5080 -o 2
+
+alpha（互相管理）
+dgraph alpha --my=192.168.43.49:7080 --zero=192.168.43.171:5081
+dgraph alpha --my=192.168.43.171:7081 --zero=192.168.43.49:5080 -o 1
+
+PS:上面的-o的就是把所有dgraph在本地主机使用的端口自动加1（除了my指定的，但一般my写成与-o同步，这样会比较清楚）
+就比如当要在一个zero节点上管理多个alpha，上面的alpha要在-o上逐渐递增（my指定的也要同步递增），且执行alpha的路径应该不同
+PS：执行alpha与zero会在当前路径上生成几个文件夹，而alpha生成的那几个貌似（大概率）就是用来存储数据的，即就是badger database，所以各个alpha要在不同的文件夹下，否则同时启动会报当前badger database已经被使用
+PS：更多参数去看zero和alpha各自的--help
+PS: 建过一次集群，之后就需要把已加入的集群全启动，否则会报错，目前还需要看怎么删除已加入的集群节点来使其不报错
+
+
+dgraph live -f ./1million.rdf.gz -s ./1million.schema 
+PS:这个是导入本地数据，会默认导入到当前运行的集群中（应该是需要在主节点运行）
+
+
+有关docker的应用
+1.docker确实在实际的生产环境上只适合做无状态服务，不适合用来部署数据库，会有安全性以及性能问题。
+但，在研究时，貌似可以利用docker hub来快速一键部署，来临时的测试性能？
