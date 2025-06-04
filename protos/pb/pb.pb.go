@@ -711,6 +711,7 @@ func (x *SrcFunction) GetIsCount() bool {
 	return false
 }
 
+// 查询任务对象的很多属性都是由SubGraph赋值得来的，如UidList就是SubGraph的SrcUIDs（当前层待查寻的uid列表）
 type Query struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache

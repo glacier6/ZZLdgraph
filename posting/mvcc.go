@@ -690,6 +690,8 @@ func (ml *MemoryLayer) ReadData(key []byte, pstore *badger.DB, readTs uint64) (*
 	// We first try to read the data from cache, if it is present. If it's not present, then we would read the
 	// latest data from the disk. This would get stored in the cache. If this read has a minTs > readTs then
 	// we would have to read the correct timestamp from the disk.
+	// 我们首先尝试从缓存中读取数据（如果存在）。如果它不存在，那么我们将从磁盘读取最新数据。这将被存储在缓存中。如果此读取具有minTs>readTs，那么我们必须从磁盘读取正确的时间戳。
+	// zzlTODO:看到这里了
 	l := ml.readFromCache(key, readTs)
 	if l != nil {
 		l.mutationMap.setTs(readTs)
@@ -723,7 +725,7 @@ func getNew(key []byte, pstore *badger.DB, readTs uint64) (*List, error) {
 		return nil, badger.ErrDBClosed
 	}
 
-	l, err := memoryLayer.ReadData(key, pstore, readTs)
+	l, err := memoryLayer.ReadData(key, pstore, readTs) //NOTE:核心操作，读取目标数据，先看缓存，再看磁盘
 	if err != nil {
 		return l, err
 	}

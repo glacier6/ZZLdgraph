@@ -56,33 +56,36 @@ var (
 )
 
 const (
-	// Set means set in mutation layer. It contributes 1 in Length.
+	// Set means set in mutation layer. It contributes 1 in Length. // Set表示在突变层中设置。它贡献了1的长度。
 	Set uint32 = 0x01
-	// Del means delete in mutation layer. It contributes -1 in Length.
+	// Del means delete in mutation layer. It contributes -1 in Length. //Del表示在突变层中删除。它的长度为-1。
 	Del uint32 = 0x02
-	// Ovr means overwrite in mutation layer. It contributes 0 in Length.
+	// Ovr means overwrite in mutation layer. It contributes 0 in Length. //Ovr表示突变层中的覆盖。它的长度为0。
 	Ovr uint32 = 0x03
 
-	// BitSchemaPosting signals that the value stores a schema or type.
+	// BitSchemaPosting signals that the value stores a schema or type. //BitSchemaPosting表示该值存储了一个模式或类型。
 	BitSchemaPosting byte = 0x01
-	// BitDeltaPosting signals that the value stores the delta of a posting list.
+	// BitDeltaPosting signals that the value stores the delta of a posting list. //BitDeltaPosting表示该值存储了发布列表的增量。
 	BitDeltaPosting byte = 0x04
-	// BitCompletePosting signals that the values stores a complete posting list.
+	// BitCompletePosting signals that the values stores a complete posting list. //BitCompletePosting表示这些值存储了一个完整的发布列表。
 	BitCompletePosting byte = 0x08
-	// BitEmptyPosting signals that the value stores an empty posting list.
+	// BitEmptyPosting signals that the value stores an empty posting list. //BitEmptyPosting表示该值存储了一个空的发布列表。
 	BitEmptyPosting byte = 0x10
 )
 
 // List stores the in-memory representation of a posting list.
+// List存储posting list的内存表示。  
+// 一个postingList长这样 person4UID+friend->[person1UID, person2UID, person3UID]
 type List struct {
 	x.SafeMutex
 	key         []byte
 	plist       *pb.PostingList
 	mutationMap *MutableLayer
-	minTs       uint64 // commit timestamp of immutable layer, reject reads before this ts.
-	maxTs       uint64 // max commit timestamp seen for this list.
+	minTs       uint64 // commit timestamp of immutable layer, reject reads before this ts. //提交不可变层的时间戳，拒绝在此ts之前的读取。
+	maxTs       uint64 // max commit timestamp seen for this list. // 此列表中看到的最大提交时间戳。
 }
 
+// NOTE:2025060400 发布列表的可变层与不可变层
 // MutableLayer is the structure that will store mutable layer of the posting list. Every posting list has an immutable
 // layer and a mutable layer. Whenever posting is added into a list, it's added as deltas into the posting list. Once
 // this list of deltas keep piling up, they are converted into a complete posting list through rollup and stored as
@@ -93,6 +96,13 @@ type List struct {
 // we start seeing concurrent writes and reads into the map causing issues. With this new MutableLayer struct, we
 // know that committedEntries will not get changed and this can be copied by reference without any issues.
 // This structure, makes it much faster to clone the Mutable Layer and be faster.
+// 1.MutableLayer是存储发布列表可变层的结构。每个PostingList都有一个不可变层和一个可变层。每当posting被添加到List中时，它都会作为增量添加到发布列表中。
+//   一旦这个增量列表不断堆积，它们就会通过汇总转换为一个完整的PostingList，并存储为不可变层。可变层包含最后一个完整PostingList后的所有增量。
+// 2.可变层曾经是从commitTs到PostingList的映射。
+// 3.每个启动的事务都会获得自己的发布列表副本，并将其存储在txn的localCache中。每次我们复制PostingList时，我们都必须深度克隆映射。
+//   如果我们通过引用给出相同的映射，我们开始看到并发写入和读取映射会导致问题。使用这个新的MutableLayer结构，我们知道commitedEntries不会被更改，并且可以通过引用复制而不会出现任何问题。
+// 	 这种结构使克隆可变层变得更快。
+
 type MutableLayer struct {
 	committedEntries map[uint64]*pb.PostingList
 	currentEntries   *pb.PostingList
@@ -179,6 +189,7 @@ func (mm *MutableLayer) get(ts uint64) *pb.PostingList {
 // len() returns the number of entries in the mutable layer. This should only be used to see if there's any data or
 // getting the rough size of the layer. This shouldn't be used in places where accurate length is required. For those
 // functions use listLen() instead.
+// len（）返回可变层中的条目数。这只应用于查看是否有任何数据或获取层的大致大小。这不应该用于需要精确长度的地方。对于这些函数，请改用listLen（）。
 func (mm *MutableLayer) len() int {
 	if mm == nil {
 		return 0
@@ -503,7 +514,7 @@ type pIterator struct {
 }
 
 func (it *pIterator) seek(l *List, afterUid, deleteBelowTs uint64) error {
-	if deleteBelowTs > 0 && deleteBelowTs <= l.minTs {
+	if deleteBelowTs > 0 && deleteBelowTs <= l.minTs { //可变层有删除标记！
 		return errors.Errorf("deleteBelowTs (%d) must be greater than the minTs in the list (%d)",
 			deleteBelowTs, l.minTs)
 	}
@@ -526,12 +537,13 @@ func (it *pIterator) seek(l *List, afterUid, deleteBelowTs uint64) error {
 	if deleteBelowTs > 0 {
 		// We don't need to iterate over the immutable layer if this is > 0. Returning here would
 		// mean it.uids is empty and valid() would return false.
+		// 如果这大于0，我们不需要迭代不可变层。返回此处意味着it.uid为空，valid（）将返回false。
 		return nil
 	}
 
 	it.uidPosting = &pb.Posting{}
 	it.dec = &codec.Decoder{Pack: it.plist.Pack}
-	it.uids = it.dec.Seek(it.afterUid, codec.SeekCurrent)
+	it.uids = it.dec.Seek(it.afterUid, codec.SeekCurrent) //NOTE:核心操作，找到目标uids
 	it.uidx = 0
 
 	it.plen = len(it.plist.Postings)
@@ -629,6 +641,8 @@ func (it *pIterator) next() error {
 
 // valid asserts that pIterator has valid uids, or advances it to the next valid part.
 // It returns false if there are no more valid parts.
+// valid断言pIterator具有有效的uid，或将其推进到下一个有效部分。
+// 如果没有更多有效部分，则返回false。
 func (it *pIterator) valid() (bool, error) {
 	if it.deleteBelowTs > 0 {
 		it.uids = nil
@@ -671,7 +685,7 @@ func (it *pIterator) posting() *pb.Posting {
 // UIDs, for each posting list. It should be pb.to this package.
 type ListOptions struct {
 	ReadTs    uint64
-	AfterUid  uint64   // Any UIDs returned must be after this value.
+	AfterUid  uint64   // Any UIDs returned must be after this value. 所有搜索结果中的uid均须要大于AfterUid
 	Intersect *pb.List // Intersect results with this list of UIDs. //将结果与此UID列表相交。
 	First     int
 }
@@ -1043,6 +1057,8 @@ func (l *List) Iterate(readTs uint64, afterUid uint64, f func(obj *pb.Posting) e
 // along with the timestamp of the delete marker, if any. If this timestamp is greater
 // than zero, it indicates that the immutable layer should be ignored during traversals.
 // If greater than zero, this timestamp must thus be greater than l.minTs.
+// pickPostings遍历可变层，返回相应的post，以及删除标记的时间戳（如果有的话）。如果此时间戳大于零，则表示在遍历过程中应忽略不可变层。即在某个版本执行了删除操作，那么就老版本的都不用看了
+// 如果大于零，则此时间戳必须大于l.minTs。
 func (l *List) pickPostings(readTs uint64) (uint64, []*pb.Posting) {
 	// This function would return zero ts for entries above readTs.
 	effective := func(start, commit uint64) uint64 {
@@ -1066,6 +1082,7 @@ func (l *List) pickPostings(readTs uint64) (uint64, []*pb.Posting) {
 	}, readTs)
 
 	// Sort all the postings by UID (inc order), then by commit/startTs in dec order.
+	// 按UID（inc顺序），然后按commit/startTs（dec顺序）对所有post进行排序。
 	sort.Slice(posts, func(i, j int) bool {
 		pi := posts[i]
 		pj := posts[j]
@@ -1079,17 +1096,19 @@ func (l *List) pickPostings(readTs uint64) (uint64, []*pb.Posting) {
 	return deleteAllMarker, posts
 }
 
+// 本函数内总共两个迭代对象，一个遍历PostingList可变层的mposts，一个遍历PostingList不可变层的pIterator，分别对应单个迭代元素mp与pp，其最终均会传递给f函数obj参数
 func (l *List) iterate(readTs uint64, afterUid uint64, f func(obj *pb.Posting) error) error {
 	l.AssertRLock()
 
 	// mposts is the list of mutable postings
-	deleteBelowTs, mposts := l.pickPostings(readTs)
+	// mposts是可变的posting列表，其内部按照uid大小有序排列
+	deleteBelowTs, mposts := l.pickPostings(readTs) // NOTE:核心操作，得到可变层的posting列表mposts，以及在可变层是否执行过删除操作（当deleteBelowTs > 0时），执行过的话就不用看不可变层了
 	if readTs < l.minTs {
 		return errors.Errorf("readTs: %d less than minTs: %d for key: %q", readTs, l.minTs, l.key)
 	}
 
-	midx, mlen := 0, len(mposts)
-	if afterUid > 0 {
+	midx, mlen := 0, len(mposts) // midx是遍历mposts的下标，mlen是mposts的长度
+	if afterUid > 0 { // 如果存在afterUid的条件，那么就找到第一个大于afterUid的uid的下标，并赋值给midx
 		midx = sort.Search(mlen, func(idx int) bool {
 			mp := mposts[idx]
 			return afterUid < mp.Uid
@@ -1110,46 +1129,53 @@ func (l *List) iterate(readTs uint64, afterUid uint64, f func(obj *pb.Posting) e
 	}()
 
 	var (
-		mp, pp  *pb.Posting
+		mp, pp  *pb.Posting // 迭代函数的参数
 		pitr    pIterator
 		prevUid uint64
 		err     error
 	)
 
-	// pitr iterates through immutable postings
-	err = pitr.seek(l, afterUid, deleteBelowTs)
+	// pitr iterates through immutable postings // pitr迭代不可变层的postings
+	err = pitr.seek(l, afterUid, deleteBelowTs)  // NOTE:核心操作，执行完这一行，就会把不可变层的结果uid放到pitr里面了
 	if err != nil {
 		return errors.Wrapf(err, "cannot initialize iterator when calling List.iterate")
 	}
 
-loop:
+loop: // 标记下面的这个循环语句，然后方便在switch语句等内执行break直接跳出标记的for循环
 	for err == nil {
+		//下面这一块获取当前可变列表指向的mp元素
 		if midx < mlen {
 			mp = mposts[midx]
 		} else {
-			mp = emptyPosting
+			mp = emptyPosting  // 1
 		}
 
+		//下面这一块获取当前不可变列表指向的pp元素
 		valid, err := pitr.valid()
 		switch {
 		case err != nil:
 			break loop
-		case valid:
+		case valid:   // 2 判断pIterator是否有有效的uid
 			pp = pitr.posting()
 		default:
 			pp = emptyPosting
 		}
 
+		// 根据两个迭代列表获取的mp与pp按情况来执行（go的switch默认不会穿透case执行）
 		switch {
 		case mp.Uid > 0 && mp.Uid == prevUid:
 			// Only pick the latest version of this posting.
 			// mp.Uid can be zero if it's an empty posting.
+			// 只选择posting的最新版本。
+ 			// 如果是空posting，mp.Uid则为零。
 			midx++
 		case pp.Uid == 0 && mp.Uid == 0:
 			// Reached empty posting for both iterators.
+			// 两个迭代器都收到了空posting。
 			return nil
-		case mp.Uid == 0 || (pp.Uid > 0 && pp.Uid < mp.Uid):
+		case mp.Uid == 0 || (pp.Uid > 0 && pp.Uid < mp.Uid):    // 3
 			// Either mp is empty, or pp is lower than mp.
+			// 要么mp为空，要么pp低于mp。
 			err = f(pp)
 			numNormalPostingsRead += 1
 			if err != nil {
@@ -1161,7 +1187,8 @@ loop:
 			}
 		case pp.Uid == 0 || (mp.Uid > 0 && mp.Uid < pp.Uid):
 			// Either pp is empty, or mp is lower than pp.
-			if mp.Op != Del {
+			// 要么pp为空，要么mp低于pp。
+			if mp.Op != Del { // 如果当前可变层的mp元素没有删除
 				err = f(mp)
 				numNormalPostingsRead += 1
 				if err != nil {
@@ -1684,14 +1711,17 @@ func (l *List) ApproxLen() int {
 // Uids returns the UIDs given some query params.
 // We have to apply the filtering before applying (offset, count).
 // WARNING: Calling this function just to get UIDs is expensive
-func (l *List) Uids(opt ListOptions) (*pb.List, error) {
+// Uids返回给定某些查询参数的UID。
+// 我们必须在应用（偏移、计数）之前应用过滤。
+// 警告：仅为了获取UID而调用此函数代价高昂
+func (l *List) Uids(opt ListOptions) (*pb.List, error) { // l是一个posting.list对象
 	if opt.First == 0 {
 		opt.First = math.MaxInt32
 	}
 	// Pre-assign length to make it faster.
 	l.RLock()
 	// Use approximate length for initial capacity.
-	res := make([]uint64, 0, l.mutationMap.len()+codec.ApproxLen(l.plist.Pack))
+	res := make([]uint64, 0, l.mutationMap.len()+codec.ApproxLen(l.plist.Pack)) // 初始长度为0,容量为二者之和
 	out := &pb.List{}
 	if l.mutationMap.len() == 0 && opt.Intersect != nil && len(l.plist.Splits) == 0 {
 		if opt.ReadTs < l.minTs {
@@ -1703,7 +1733,8 @@ func (l *List) Uids(opt ListOptions) (*pb.List, error) {
 		return out, nil
 	}
 
-	err := l.iterate(opt.ReadTs, opt.AfterUid, func(p *pb.Posting) error {
+	
+	err := l.iterate(opt.ReadTs, opt.AfterUid, func(p *pb.Posting) error {  // NOTE:核心操作，在这个iterate中获取到结果，迭代的元素是每一个posting
 		if p.PostingType == pb.Posting_REF {
 			res = append(res, p.Uid)
 			if opt.First < 0 {

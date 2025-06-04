@@ -792,9 +792,11 @@ func (qs *queryState) handleUidPostings(
 	// calculate) to work correctly. But we have seen some panics while forming DataKey in
 	// calculate(). panic is of the form "index out of range [4] with length 1". Hence return error
 	// from here when srcFn.n != len(q.UidList.Uids).
+	// srcFn.n应等于len（q.UidList.Uids），以便以下实现（DivideAndRule和compute）正常工作。但是我们在calculate（）中形成DataKey时看到了一些恐慌。恐慌的形式是“索引超出范围[4]，长度为1”。因此，当srcFn.n！=len（q.UidList.Uids）。
+
 	switch srcFn.fnType {
 	case notAFunction, compareScalarFn, hasFn, uidInFn:
-		if srcFn.n != len(q.UidList.GetUids()) {
+		if srcFn.n != len(q.UidList.GetUids()) { // 如果函数类别是0,3,8,9的话，且查询函数内的目标数量与当前层待查的UID数量不相同，那就是有错误
 			return errors.Errorf("srcFn.n: %d is not equal to len(q.UidList.Uids): %d, srcFn: %+v in "+
 				"handleUidPostings", srcFn.n, len(q.UidList.GetUids()), srcFn)
 		}
@@ -802,24 +804,29 @@ func (qs *queryState) handleUidPostings(
 
 	// Divide the task into many goroutines.
 	// 将任务划分为多个协程来处理
-	numGo, width := x.DivideAndRule(srcFn.n)
+	numGo, width := x.DivideAndRule(srcFn.n) // width是单个协程的处理宽度（诺为uid，那么就是uid处理数量）
 	x.AssertTrue(width > 0)
 	span.Annotatef(nil, "Width: %d. NumGo: %d", width, numGo)
 
+	// 有关多语言处理
 	lang := langForFunc(q.Langs)
 	needFiltering := needsStringFiltering(srcFn, q.Langs, q.Attr)
 	isList := schema.State().IsList(q.Attr)
 
+	//根据上面的得到的协程数量，创建阻塞切片errCh与汇总输出切片outputs
 	errCh := make(chan error, numGo)
 	outputs := make([]*pb.Result, numGo)
 
-	calculate := func(start, end int) error { // zzlTODO:看到这里了，本地查询-UID查询最最核心的代码，还有网络查询与本地查询-值查询两个要看
-		x.AssertTrue(start%width == 0)
-		out := &pb.Result{}
-		outputs[start/width] = out
 
+	// 下面这个函数是最最核心的处理
+	calculate := func(start, end int) error {
+		x.AssertTrue(start%width == 0)
+		out := &pb.Result{} // 创建结果输出结构体
+		outputs[start/width] = out // 赋给结果汇总结构体
+
+		// 遍历依次处理每一个目标
 		for i := start; i < end; i++ {
-			if i%100 == 0 {
+			if i%100 == 0 { // 非阻塞地检查上下文状态，在执行操作前先确认是否应该继续执行
 				select {
 				case <-ctx.Done():
 					return ctx.Err()
@@ -828,13 +835,13 @@ func (qs *queryState) handleUidPostings(
 			}
 			var key []byte
 			switch srcFn.fnType {
-			case notAFunction, compareScalarFn, hasFn, uidInFn:
-				if q.Reverse {
+			case notAFunction, compareScalarFn, hasFn, uidInFn: // 如果是有当前层待查寻UID列表的查询，生成具有给定属性和UID的数据key，其内主要包含谓词attr与目标UID
+				if q.Reverse { // 是否是反转查询
 					key = x.ReverseKey(q.Attr, q.UidList.Uids[i])
 				} else {
 					key = x.DataKey(q.Attr, q.UidList.Uids[i])
 				}
-			case geoFn, regexFn, fullTextSearchFn, standardFn, customIndexFn, matchFn,
+			case geoFn, regexFn, fullTextSearchFn, standardFn, customIndexFn, matchFn, // 如果是其他的查询，生成具有给定属性和术语的索引键
 				compareAttrFn:
 				key = x.IndexKey(q.Attr, srcFn.tokens[i])
 			default:
@@ -842,7 +849,7 @@ func (qs *queryState) handleUidPostings(
 			}
 
 			// Get or create the posting list for an entity, attribute combination.
-			pl, err := qs.cache.Get(key)
+			pl, err := qs.cache.Get(key) // NOTE:核心操作，根据key生成一个posting-list对象，其内已经有目标UID了（在(*(*(*(*pl).plist).Pack).Blocks[0]).Base中）
 			if err != nil {
 				return err
 			}
@@ -852,6 +859,7 @@ func (qs *queryState) handleUidPostings(
 					q.Attr, []byte(srcFn.tokens[i]), uint64(pl.ApproxLen()))
 			}
 
+			// zzlTODO:看到这里了下面这个switch是对结果筛选吗？
 			switch {
 			case q.DoCount:
 				if i == 0 {
@@ -949,7 +957,7 @@ func (qs *queryState) handleUidPostings(
 				if i == 0 {
 					span.Annotate(nil, "default no facets")
 				}
-				uidList, err := pl.Uids(opts)
+				uidList, err := pl.Uids(opts) // NOTE:核心操作，应该是从pl中筛选出来目标UID，opts是列表配置项，内有读时间戳，其内的大部分值由查询任务赋予
 				if err != nil {
 					return err
 				}
@@ -966,21 +974,21 @@ func (qs *queryState) handleUidPostings(
 			end = srcFn.n
 		}
 		go func(start, end int) {
-			errCh <- calculate(start, end)
+			errCh <- calculate(start, end) // 分配并查询计算
 		}(start, end)
 	}
-	for range numGo {  //这个for循环等待所有go协程完成任务
+	for range numGo {  // 这个for循环等待所有go协程完成任务
 		if err := <-errCh; err != nil {
 			return err
 		}
 	}
 	// All goroutines are done. Now attach their results.
-	// 所有的协程都结束了。现在集成他们的结果。
+	// 所有的协程都结束了。现在集成他们的结果,注意下面这个out是直接取得args的地址，所以会同步改。
 	out := args.out
 	for _, chunk := range outputs {
 		out.FacetMatrix = append(out.FacetMatrix, chunk.FacetMatrix...)
 		out.Counts = append(out.Counts, chunk.Counts...)
-		out.UidMatrix = append(out.UidMatrix, chunk.UidMatrix...)
+		out.UidMatrix = append(out.UidMatrix, chunk.UidMatrix...) //集成查到的UID
 	}
 	var total int
 	for _, list := range out.UidMatrix {

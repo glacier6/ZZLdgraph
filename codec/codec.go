@@ -34,8 +34,10 @@ type seekPos int
 
 const (
 	// SeekStart is used with Seek() to search relative to the Uid, returning it in the results.
+	// SeekStart与Seek（）一起使用，以相对于Uid进行搜索，并在结果中返回它。
 	SeekStart seekPos = iota
 	// SeekCurrent to Seek() a Uid using it as offset, not as part of the results.
+	// SeekCurrent to Seek（）使用Uid作为偏移量，而不是作为结果的一部分。
 	SeekCurrent
 )
 
@@ -426,6 +428,7 @@ func EncodeFromBuffer(buf []byte, blockSize int) *pb.UidPack {
 
 // ApproxLen would indicate the total number of UIDs in the pack. Can be used for int slice
 // allocations.
+// ApproxLen将指示包中UID的总数。可用于int切片分配。
 func ApproxLen(pack *pb.UidPack) int {
 	if pack == nil {
 		return 0

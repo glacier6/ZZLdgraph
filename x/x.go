@@ -924,11 +924,12 @@ func PredicateLang(s string) (string, string) {
 
 // DivideAndRule is used to divide a number of tasks among multiple go routines.
 // DividerAndRule用于在多个go例程中划分多个任务。
+// 注意下面这种GO语言的特殊返回形式，直接在函数体上定义要返回的变量，然后只写一个return即可
 func DivideAndRule(num int) (numGo, width int) {
-	numGo, width = 64, 0
+	numGo, width = 64, 0 // 最大协程数为64
 	for ; numGo >= 1; numGo /= 2 {
 		widthF := math.Ceil(float64(num) / float64(numGo))
-		if numGo == 1 || widthF >= 256.0 {
+		if numGo == 1 || widthF >= 256.0 { // 最低宽度应该大于256，如诺是uid查询，则单个协程最低处理256个uid查询
 			width = int(widthF)
 			return
 		}

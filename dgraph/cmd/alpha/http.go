@@ -152,7 +152,6 @@ func parseDuration(r *http.Request, name string) (time.Duration, error) {
 // It can then encode the response as appropriate before sending it back to the user.
 // 此方法只需构建请求并将其代理到dgraph的Query方法。服务器。
 // 然后，它可以在将响应发送回用户之前对其进行适当的编码。
-// zzlTODO:注意此方法会因为ratel每隔一段时间就会自动调用，目前还不知道ratel在做什么
 func queryHandler(w http.ResponseWriter, r *http.Request) {
 	// 注意这个是触发处理函数
 	if commonHandler(w, r) {

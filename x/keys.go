@@ -200,6 +200,8 @@ func TypeKey(attr string) []byte {
 
 // DataKey generates a data key with the given attribute and UID.
 // The structure of a data key is as follows:
+// DataKey生成具有给定属性和UID的数据key。
+// 数据key的结构如下：
 //
 // byte 0: key type prefix (set to DefaultPrefix or ByteSplit if part of a multi-part list)
 // byte 1-2: length of attr
@@ -208,7 +210,14 @@ func TypeKey(attr string) []byte {
 // next eight bytes: value of uid
 // next eight bytes (optional): if the key corresponds to a split list, the startUid of
 // the split stored in this key and the first byte will be sets to ByteSplit.
-func DataKey(attr string, uid uint64) []byte {
+// 字节0：键类型前缀（如果是多部分列表的一部分，则设置为DefaultPrefix或ByteSplit）
+// 字节1-2：attr的长度
+// 下一个len（attr）字节：attr的值
+// 下一个字节：数据类型前缀（设置为ByteData）
+// 接下来的八个字节：uid的值
+// 接下来的八个字节（可选）：如果键对应于拆分列表，则startUid
+// 存储在此密钥中的分割和第一个字节将被设置为ByteSplit。
+func DataKey(attr string, uid uint64) []byte { // attr是谓词
 	extra := 1 + 8 // ByteData + UID
 	buf, prefixLen := generateKey(DefaultPrefix, attr, extra)
 
@@ -222,6 +231,8 @@ func DataKey(attr string, uid uint64) []byte {
 
 // ReverseKey generates a reverse key with the given attribute and UID.
 // The structure of a reverse key is as follows:
+// ReverseKey生成具有给定属性和UID的反向key。
+// 反向密钥的结构如下：
 //
 // byte 0: key type prefix (set to DefaultPrefix or ByteSplit if part of a multi-part list)
 // byte 1-2: length of attr
@@ -230,7 +241,14 @@ func DataKey(attr string, uid uint64) []byte {
 // next eight bytes: value of uid
 // next eight bytes (optional): if the key corresponds to a split list,
 // the startUid of the split stored in this key.
-func ReverseKey(attr string, uid uint64) []byte {
+// 字节0：键类型前缀（如果是多部分列表的一部分，则设置为DefaultPrefix或ByteSplit）
+// 字节1-2：attr的长度
+// 下一个len（attr）字节：attr的值
+// 下一个字节：数据类型前缀（设置为ByteReverse）
+// 接下来的八个字节：uid的值
+// 接下来的八个字节（可选）：如果密钥对应于拆分列表，
+// 存储在该密钥中的分割开始日期。
+func ReverseKey(attr string, uid uint64) []byte { // attr是谓词
 	extra := 1 + 8 // ByteReverse + UID
 	buf, prefixLen := generateKey(DefaultPrefix, attr, extra)
 
@@ -244,6 +262,8 @@ func ReverseKey(attr string, uid uint64) []byte {
 
 // IndexKey generates a index key with the given attribute and term.
 // The structure of an index key is as follows:
+// IndexKey生成具有给定属性和术语的索引键。
+// 索引键的结构如下：
 //
 // byte 0: key type prefix (set to DefaultPrefix or ByteSplit if part of a multi-part list)
 // byte 1-2: length of attr
@@ -252,6 +272,12 @@ func ReverseKey(attr string, uid uint64) []byte {
 // next len(term) bytes: value of term
 // next eight bytes (optional): if the key corresponds to a split list, the startUid of
 // the split stored in this key.
+// 字节0：键类型前缀（如果是多部分列表的一部分，则设置为DefaultPrefix或ByteSplit）
+// 字节1-2：attr的长度
+// 下一个len（attr）字节：attr的值
+// 下一个字节：数据类型前缀（设置为ByteIndex）
+// 下一个len（term）字节：term的值
+// 接下来的八个字节（可选）：如果键对应于拆分列表，则startUid存储在此key中的分割。
 func IndexKey(attr, term string) []byte {
 	extra := 1 + len(term) // ByteIndex + term
 	buf, prefixLen := generateKey(DefaultPrefix, attr, extra)

@@ -80,10 +80,10 @@ type LocalCache struct {
 	// during commit.
 	deltas map[string][]byte
 
-	// max committed timestamp of the read posting lists.
+	// max committed timestamp of the read posting lists.//读取发布列表的最大提交时间戳。
 	maxVersions map[string]uint64
 
-	// plists are posting lists in memory. They can be discarded to reclaim space.
+	// plists are posting lists in memory. They can be discarded to reclaim space.//plist是正在内存中的发布列表。它们可以被丢弃以回收空间。
 	plists map[string]*List
 }
 
@@ -251,6 +251,7 @@ func (lc *LocalCache) getNoStore(key string) *List {
 // key already exists, the cache will not be modified and the existing list
 // will be returned instead. This behavior is meant to prevent the goroutines
 // using the cache from ending up with an orphaned version of a list.
+// SetIfAbsent将指定key的列表添加到缓存中。如果相同键的列表已存在，则不会修改缓存，而是返回现有列表。此行为旨在防止使用缓存的goroutines最终得到列表的孤立版本。
 func (lc *LocalCache) SetIfAbsent(key string, updated *List) *List {
 	lc.Lock()
 	defer lc.Unlock()
@@ -263,11 +264,11 @@ func (lc *LocalCache) SetIfAbsent(key string, updated *List) *List {
 
 func (lc *LocalCache) getInternal(key []byte, readFromDisk bool) (*List, error) {
 	skey := string(key)
-	getNewPlistNil := func() (*List, error) {
+	getNewPlistNil := func() (*List, error) { 
 		lc.RLock()
 		defer lc.RUnlock()
 		if lc.plists == nil {
-			return getNew(key, pstore, lc.startTs)
+			return getNew(key, pstore, lc.startTs) //NOTE:核心操作，pstore是Badger！
 		}
 		if l, ok := lc.plists[skey]; ok {
 			return l, nil
@@ -296,6 +297,7 @@ func (lc *LocalCache) getInternal(key []byte, readFromDisk bool) (*List, error) 
 
 	// If we just brought this posting list into memory and we already have a delta for it, let's
 	// apply it before returning the list.
+	// 如果我们刚刚将这个posting list带入内存，并且已经有了它的增量，那么让我们在返回列表之前应用它。
 	lc.RLock()
 	if delta, ok := lc.deltas[skey]; ok && len(delta) > 0 {
 		pl.setMutation(lc.startTs, delta)
@@ -376,6 +378,7 @@ func (lc *LocalCache) GetSinglePosting(key []byte) (*pb.PostingList, error) {
 }
 
 // Get retrieves the cached version of the list associated with the given key.
+// Get检索与给定键关联的list的缓存版本。
 func (lc *LocalCache) Get(key []byte) (*List, error) {
 	return lc.getInternal(key, true)
 }
