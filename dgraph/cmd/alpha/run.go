@@ -527,7 +527,7 @@ func setupServer(closer *z.Closer) {
 	//NOTE:核心操作，以下均是，将各个处理函数绑定到多路复用器上对应请求路径上
 	baseMux.HandleFunc("/query", queryHandler)  //查询
 	baseMux.HandleFunc("/query/", queryHandler)
-	baseMux.HandleFunc("/mutate", mutationHandler) //突变
+	baseMux.HandleFunc("/mutate", mutationHandler) //突变 TODO:待看突变，结合那个事务解读的一起看
 	baseMux.HandleFunc("/mutate/", mutationHandler)
 	baseMux.HandleFunc("/commit", commitHandler)
 	baseMux.HandleFunc("/alter", alterHandler)

@@ -78,12 +78,14 @@ type LocalCache struct {
 	// The keys for these maps is a string representation of the Badger key for the posting list.
 	// deltas keep track of the updates made by txn. These must be kept around until written to disk
 	// during commit.
+	// 这些映射的键是发布列表的Badger键的字符串表示。
+  // deltas跟踪txn的更新。这些必须保留到提交期间写入磁盘为止。
 	deltas map[string][]byte
 
-	// max committed timestamp of the read posting lists.//读取发布列表的最大提交时间戳。
+	// max committed timestamp of the read posting lists.//读取PostingList的最大提交时间戳。
 	maxVersions map[string]uint64
 
-	// plists are posting lists in memory. They can be discarded to reclaim space.//plist是正在内存中的发布列表。它们可以被丢弃以回收空间。
+	// plists are posting lists in memory. They can be discarded to reclaim space.//plist是正在内存中的PostingList。它们可以被丢弃以回收空间。
 	plists map[string]*List
 }
 

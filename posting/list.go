@@ -75,17 +75,18 @@ const (
 
 // List stores the in-memory representation of a posting list.
 // List存储posting list的内存表示。  
-// 一个postingList长这样 person4UID+friend->[person1UID, person2UID, person3UID]
+// 一个posting长这样 person4UID+friend->[person1UID, person2UID, person3UID]
+// postingLists则是多个这样子的集合，其是Dgraph中数据访问和缓存的单元，且底层的键值存储将Posting Lists作为一个单元进行存储与检索
 type List struct {
 	x.SafeMutex
 	key         []byte
 	plist       *pb.PostingList
-	mutationMap *MutableLayer
+	mutationMap *MutableLayer //可变层
 	minTs       uint64 // commit timestamp of immutable layer, reject reads before this ts. //提交不可变层的时间戳，拒绝在此ts之前的读取。
 	maxTs       uint64 // max commit timestamp seen for this list. // 此列表中看到的最大提交时间戳。
 }
 
-// NOTE:2025060400 发布列表的可变层与不可变层
+// NOTE:2025060400 PostingList的可变层与不可变层
 // MutableLayer is the structure that will store mutable layer of the posting list. Every posting list has an immutable
 // layer and a mutable layer. Whenever posting is added into a list, it's added as deltas into the posting list. Once
 // this list of deltas keep piling up, they are converted into a complete posting list through rollup and stored as
@@ -103,21 +104,24 @@ type List struct {
 //   如果我们通过引用给出相同的映射，我们开始看到并发写入和读取映射会导致问题。使用这个新的MutableLayer结构，我们知道commitedEntries不会被更改，并且可以通过引用复制而不会出现任何问题。
 // 	 这种结构使克隆可变层变得更快。
 
-type MutableLayer struct {
+type MutableLayer struct { // PostingList的可变层
+	// Since we are storing the committedEntries and currentEntries separately. We can cache things that are
+	// going to be used repeatedly.
+	// 因为我们分别存储commitedEntries和currentEntries。我们可以缓存将被重复使用的东西。
 	committedEntries map[uint64]*pb.PostingList
 	currentEntries   *pb.PostingList
 	readTs           uint64
 
-	// Since we are storing the committedEntries and currentEntries separately. We can cache things that are
-	// going to be used repeatedly.
-	deleteAllMarker uint64 // Stores the latest deleteAllMarker found in the posting list
-	// including currentEntries.
-	committedUids     map[uint64]*pb.Posting // Stores the uid to posting mapping in committedEntries.
-	committedUidsTime uint64                 // Stores the latest commitTs in the committedEntries.
-	length            int                    // Stores the length of the posting list until committedEntries.
+
+	deleteAllMarker uint64 // Stores the latest deleteAllMarker found in the posting list //存储发布列表中找到的最新deleteAllMarker
+	// including currentEntries.包含currentEntries
+	committedUids     map[uint64]*pb.Posting // Stores the uid to posting mapping in committedEntries. 将uid到posting的映射存储在commitedEntries中。
+	committedUidsTime uint64                 // Stores the latest commitTs in the committedEntries. 将最新的commitTs存储在commitedEntries中。
+	length            int                    // Stores the length of the posting list until committedEntries. 存储postingList的长度，直到提交条目为止。
 
 	// We also cache some things required for us to update currentEntries faster
-	currentUids map[uint64]int // Stores the uid to index mapping in the currentEntries posting list
+	// 我们还缓存了一些需要的东西，以便更快地更新currentEntries
+	currentUids map[uint64]int // Stores the uid to index mapping in the currentEntries posting list //将uid到索引的映射存储在currentEntries发布列表中
 }
 
 func newMutableLayer() *MutableLayer {

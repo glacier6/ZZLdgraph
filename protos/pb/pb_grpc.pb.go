@@ -320,9 +320,12 @@ const (
 	Zero_ApplyLicense_FullMethodName     = "/pb.Zero/ApplyLicense"
 )
 
+// NOTE:202506053 Zero的客户端服务API
 // ZeroClient is the client API for Zero service.
+// ZeroClient是Zero服务的客户端API。
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+// 有关ctx使用和关闭/结束流式RPC的语义，请参阅https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ZeroClient interface {
 	// These 3 endpoints are for handling membership.
 	Connect(ctx context.Context, in *Member, opts ...grpc.CallOption) (*ConnectionState, error)

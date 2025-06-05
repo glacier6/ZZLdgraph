@@ -644,7 +644,7 @@ func (c *CachePL) Set(l *List, readTs uint64) {
 }
 
 func (ml *MemoryLayer) readFromCache(key []byte, readTs uint64) *List {
-	cacheItem, ok := ml.cache.get(key)
+	cacheItem, ok := ml.cache.get(key) // NOTE:核心操作，ml是全局的内存层对象
 
 	if ok && cacheItem.list != nil && cacheItem.list.minTs <= readTs {
 		cacheItem.list.RLock()
@@ -677,31 +677,32 @@ func (ml *MemoryLayer) readFromDisk(key []byte, pstore *badger.DB, readTs uint64
 }
 
 // Saves the data in the cache. The caller must ensure that the list provided is the latest possible.
+// 将数据保存在缓存中。调用者必须确保提供的列表是最新的。
 func (ml *MemoryLayer) saveInCache(key []byte, l *List) {
 	l.RLock()
 	defer l.RUnlock()
 	cacheItem := NewCachePL()
 	cacheItem.list = copyList(l)
 	cacheItem.lastUpdate = l.maxTs
-	ml.cache.set(key, cacheItem)
+	ml.cache.set(key, cacheItem) // 设置缓存
 }
 
 func (ml *MemoryLayer) ReadData(key []byte, pstore *badger.DB, readTs uint64) (*List, error) {
 	// We first try to read the data from cache, if it is present. If it's not present, then we would read the
 	// latest data from the disk. This would get stored in the cache. If this read has a minTs > readTs then
 	// we would have to read the correct timestamp from the disk.
-	// 我们首先尝试从缓存中读取数据（如果存在）。如果它不存在，那么我们将从磁盘读取最新数据。这将被存储在缓存中。如果此读取具有minTs>readTs，那么我们必须从磁盘读取正确的时间戳。
-	// zzlTODO:看到这里了
-	l := ml.readFromCache(key, readTs)
-	if l != nil {
-		l.mutationMap.setTs(readTs)
+	// 我们首先尝试从缓存中读取数据（如果存在）。如果它不存在，那么我们将从磁盘读取最新数据。这将被存储在缓存中。如果此读取具有minTs>readTs，那么我们必须从磁盘读取正确的时间戳（minTs是不变层时间戳）。
+	// zzlTODO:看到这里了，具体怎么读uid的呢？
+	l := ml.readFromCache(key, readTs) // NOTE:核心操作，先尝试从Cache中读取PostList
+	if l != nil { // 如果读出来数据了，就直接跳出来
+		l.mutationMap.setTs(readTs) // 设置当下PostList的可变层的readTs
 		return l, nil
 	}
-	l, err := ml.readFromDisk(key, pstore, math.MaxUint64)
+	l, err := ml.readFromDisk(key, pstore, math.MaxUint64) // NOTE:核心操作，尝试从磁盘中读取
 	if err != nil {
 		return nil, err
 	}
-	ml.saveInCache(key, l)
+	ml.saveInCache(key, l) // 将刚从磁盘读取的数据，保存到缓存中
 	if l.minTs == 0 || readTs >= l.minTs {
 		l.mutationMap.setTs(readTs)
 		return l, nil
@@ -720,12 +721,20 @@ func GetNew(key []byte, pstore *badger.DB, readTs uint64) (*List, error) {
 	return getNew(key, pstore, readTs)
 }
 
-func getNew(key []byte, pstore *badger.DB, readTs uint64) (*List, error) {
+
+// NOTE:202506054 事物时间戳返回流程
+// Zero节点的Timestamps函数接口返回 -> s.needTs(s是ServerState对象，保存Dgraph数据库的状态，needTs是长度为100的通道，具体处理在NOTE:2025060502) -> 
+// posting.Oracle().MaxAssigned() 或者 worker.State.GetTimestamp（去zero请求时间戳）  -> 
+// qc.req.StartTs（qc是queryContext对象，保存处理请求的所需的变量） -> req.ReadTs（req是query.Request对象） -> sg.ReadTs（sg是查询子图，取自req.Subgraphs[idx]） -> 
+// q.ReadTs（q是查询任务对象pb.Query，在NOTE:202506050创建） -> qs.cache.startTs（qs是查询状态缓存的queryState，在NOTE:202506051创建） -> readTs
+// NOTE:重点：所以实际上readTs就是由向Zero节点请求的StartTs简单转换的，二者是一个东西
+// 除了上面的对象，还有一个查询函数对象functionContext很重要，这个主要是保存诸如has等函数的一些信息
+func getNew(key []byte, pstore *badger.DB, readTs uint64) (*List, error) { 
 	if pstore.IsClosed() {
 		return nil, badger.ErrDBClosed
 	}
 
-	l, err := memoryLayer.ReadData(key, pstore, readTs) //NOTE:核心操作，读取目标数据，先看缓存，再看磁盘
+	l, err := memoryLayer.ReadData(key, pstore, readTs) //NOTE:核心操作，读取目标数据，先看缓存，再看磁盘（memoryLayer是个全局单例变量）
 	if err != nil {
 		return l, err
 	}

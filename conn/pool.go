@@ -46,6 +46,7 @@ var (
 
 // Pool is used to manage the grpc client connection(s) for communicating with other
 // worker instances.  Right now it just holds one of them.
+// 池用于管理grpc客户端连接，以便与其他工作实例通信。现在它只容纳了其中一个。
 type Pool struct {
 	sync.RWMutex
 	// A pool now consists of one connection. gRPC uses HTTP2 transport to combine
@@ -202,6 +203,7 @@ func newPool(addr string, tlsClientConf *tls.Config) (*Pool, error) {
 }
 
 // Get returns the connection to use from the pool of connections.
+// Get从连接池中返回要使用的连接。
 func (p *Pool) Get() *grpc.ClientConn {
 	p.RLock()
 	defer p.RUnlock()

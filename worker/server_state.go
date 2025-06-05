@@ -65,11 +65,11 @@ type ServerState struct {
 	WALstore *raftwal.DiskStorage // WALstore存储对象（即RAFT的那个日志）
 	gcCloser *z.Closer // closer for valueLogGC
 
-	needTs chan tsReq
+	needTs chan tsReq // 待请求时间戳队列
 }
 
 // State is the instance of ServerState used by the current server.
-//State是当前服务器使用的ServerState的实例对象。
+//State是当前服务器使用的ServerState的单一实例对象，保存在woker.State。
 var State ServerState
 
 // InitServerState initializes this server's state.
@@ -78,7 +78,7 @@ func InitServerState() {
 	Config.validate()
 
 	State.FinishCh = make(chan struct{})
-	State.needTs = make(chan tsReq, 100)
+	State.needTs = make(chan tsReq, 100) // 创建待请求时间戳通道
 
 	State.InitStorage()
 	go State.fillTimestampRequests()
@@ -196,10 +196,10 @@ func (s *ServerState) fillTimestampRequests() {
 		select {
 		case <-s.gcCloser.HasBeenClosed():
 			return
-		case req := <-s.needTs:
+		case req := <-s.needTs: //处理时间戳获取 NOTE:2025060502
 		slurpLoop:
 			for {
-				reqs = append(reqs, req)
+				reqs = append(reqs, req) //将取出来的时间戳获取请求放到请求列中
 				select {
 				case req = <-s.needTs:
 				default:
@@ -208,7 +208,7 @@ func (s *ServerState) fillTimestampRequests() {
 			}
 		}
 
-		// Generate the request.
+		// Generate the request.生成请求
 		num := &pb.Num{}
 		for _, r := range reqs {
 			if r.readOnly {
@@ -219,12 +219,13 @@ func (s *ServerState) fillTimestampRequests() {
 		}
 
 		// Execute the request with infinite retries.
+		// 无限次重试执行请求。
 	retry:
 		if s.gcCloser.Ctx().Err() != nil {
 			return
 		}
 		ctx, cancel := context.WithTimeout(s.gcCloser.Ctx(), 10*time.Second)
-		ts, err := Timestamps(ctx, num)
+		ts, err := Timestamps(ctx, num) // NOTE:核心操作，向zero请求时间戳！！！
 		cancel()
 		if err != nil {
 			glog.Warningf("Error while retrieving timestamps: %v with delay: %v."+
@@ -237,8 +238,8 @@ func (s *ServerState) fillTimestampRequests() {
 			goto retry
 		}
 		var offset uint64
-		for _, req := range reqs {
-			if req.readOnly {
+		for _, req := range reqs { //遍历塞时间戳
+			if req.readOnly { // 如果请求的是只读的时间戳
 				req.ch <- ts.ReadOnly
 			} else {
 				req.ch <- ts.StartId + offset
@@ -252,6 +253,6 @@ func (s *ServerState) fillTimestampRequests() {
 type tsReq struct {
 	readOnly bool
 	// A one-shot chan which we can send a txn timestamp upon.
-	// 一个一次性的chan，我们可以发送一个txn时间戳。
-	ch chan uint64
+	// 一个一次性的chan，我们可以发送一个txn时间戳，这个ch里面就是存的时间戳，这里面有数据了，那就代表请求到了。
+	ch chan uint64 
 }

@@ -632,13 +632,14 @@ func AssignUidsOverNetwork(ctx context.Context, num *pb.Num) (*pb.AssignedIds, e
 }
 
 // Timestamps sends a request to assign startTs for a new transaction to the current zero leader.
+// 时间戳向当前的Zero Leader发送请求，为新事务分配startTs。
 func Timestamps(ctx context.Context, num *pb.Num) (*pb.AssignedIds, error) {
-	pl := groups().connToZeroLeader()
+	pl := groups().connToZeroLeader() // 尝试连接Zero，返回一个GRpc连接池
 	if pl == nil {
 		return nil, conn.ErrNoConnection
 	}
 
-	con := pl.Get()
+	con := pl.Get() // 从连接池中返回需要的连接
 	c := pb.NewZeroClient(con)
 	return c.Timestamps(ctx, num)
 }

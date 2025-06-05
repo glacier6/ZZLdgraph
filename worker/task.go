@@ -157,7 +157,7 @@ func ProcessTaskOverNetwork(ctx context.Context, q *pb.Query) (*pb.Result, error
 		return processTask(ctx, q, gid) // NOTE:核心操作，直接本地查询
 	}
 
-	result, err := processWithBackupRequest(ctx, gid, //NOTE:核心操作，不在当前组，此时应该发起RPC远程调用
+	result, err := processWithBackupRequest(ctx, gid, //NOTE:核心操作，不在当前组，此时应该发起RPC远程调用 zzlTODO:待看RPC是怎么发的，又是怎么接受处理的？
 		func(ctx context.Context, c pb.WorkerClient) (interface{}, error) {
 			return c.ServeTask(ctx, q)
 		})
@@ -859,7 +859,7 @@ func (qs *queryState) handleUidPostings(
 					q.Attr, []byte(srcFn.tokens[i]), uint64(pl.ApproxLen()))
 			}
 
-			// zzlTODO:看到这里了下面这个switch是对结果筛选吗？
+			// zzlTODO:UID查询的另一部分，下面这个switch是对结果筛选吗？
 			switch {
 			case q.DoCount:
 				if i == 0 {
@@ -1049,7 +1049,7 @@ func processTask(ctx context.Context, q *pb.Query, gid uint32) (*pb.Result, erro
 		return nil, errUnservedTablet
 	}
 
-	var qs queryState // 查询的状态的暂时保存，即缓存，其本质是一个LocalCache对象
+	var qs queryState // 查询的状态的暂时保存，即缓存，其本质是一个LocalCache对象 NOTE:202506051
 	if q.Cache == UseTxnCache {
 		qs.cache = posting.Oracle().CacheAt(q.ReadTs) // oracle是一个全局的管理事物的对象，分配一个缓存
 	}
@@ -1144,12 +1144,12 @@ func (qs *queryState) helpProcessTask(ctx context.Context, q *pb.Query, gid uint
 	// NOTE:核心操作，下面俩是最核心的操作，调用对应的函数获取数据（out在args内的，）
 	if needsValPostings { // 如果是要获取值的posting list
 		span.Annotate(nil, "handleValuePostings")
-		if err := qs.handleValuePostings(ctx, args); err != nil { //NOTE:核心操作，查询目标谓词所对应的值
+		if err := qs.handleValuePostings(ctx, args); err != nil { //NOTE:核心操作，查询目标谓词所对应的值 // zzlTODO:待看，怎么读值
 			return nil, err
 		}
 	} else {
 		span.Annotate(nil, "handleUidPostings")
-		if err = qs.handleUidPostings(ctx, args, opts); err != nil { //NOTE:核心操作，查询目标节点的UID
+		if err = qs.handleUidPostings(ctx, args, opts); err != nil { //NOTE:核心操作，查询目标节点的UID 
 			return nil, err
 		}
 	}

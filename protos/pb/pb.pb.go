@@ -4945,7 +4945,7 @@ type AssignedIds struct {
 
 	StartId uint64 `protobuf:"varint,1,opt,name=startId,proto3" json:"startId,omitempty"`
 	EndId   uint64 `protobuf:"varint,2,opt,name=endId,proto3" json:"endId,omitempty"`
-	// The following is used for read only transactions.
+	// The following is used for read only transactions.//以下内容用于只读事务。
 	ReadOnly uint64 `protobuf:"varint,5,opt,name=read_only,json=readOnly,proto3" json:"read_only,omitempty"`
 }
 

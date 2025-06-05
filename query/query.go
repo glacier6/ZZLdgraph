@@ -2203,7 +2203,7 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 			}
 		// 当非比较时
 		default:
-			taskQuery, err := createTaskQuery(ctx, sg) // NOTE:核心操作，创建一个查询任务
+			taskQuery, err := createTaskQuery(ctx, sg) // NOTE:核心操作，创建一个查询任务 NOTE:202506050
 			if err != nil { // 如果创建查询任务失败了
 				rch <- err
 				return
@@ -2806,7 +2806,7 @@ func UidToHex(uid uint64) string {
 // 最初设置了ReadTs、Cache和DQLQuery。
 // 处理查询时填写子图、变量和延迟。
 type Request struct {
-	ReadTs   uint64 // ReadTs for the transaction.
+	ReadTs   uint64 // ReadTs for the transaction. 事务的读取时间戳
 	Cache    int    // 0 represents use txn cache, 1 represents not to use cache.0表示使用txn缓存，1表示不使用缓存。
 	Latency  *Latency
 	DqlQuery *dql.Result

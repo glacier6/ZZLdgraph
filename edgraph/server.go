@@ -1521,7 +1521,7 @@ func processQuery(ctx context.Context, qc *queryContext) (*api.Response, error) 
 
 	if qc.req.StartTs == 0 { // 如果依旧还未分配开始时间戳
 		assignTimestampStart := time.Now() // 记录请求时间戳的时间
-		qc.req.StartTs = worker.State.GetTimestamp(qc.req.ReadOnly) // 异步的去获取时间戳了（去请求其他主机获取）
+		qc.req.StartTs = worker.State.GetTimestamp(qc.req.ReadOnly) // 异步的去获取时间戳了（去请求Zero主机获取）
 		qc.latency.AssignTimestamp = time.Since(assignTimestampStart) // 记录获取时间戳所花费的时间
 	}
 
