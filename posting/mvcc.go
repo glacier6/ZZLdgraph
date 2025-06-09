@@ -531,12 +531,14 @@ func unmarshalOrCopy(plist *pb.PostingList, item *badger.Item) error {
 // ReadPostingList constructs the posting list from the disk using the passed iterator.
 // Use forward iterator with allversions enabled in iter options.
 // key would now be owned by the posting list. So, ensure that it isn't reused elsewhere.
+// ReadPostingList使用传递的迭代器从磁盘构造发布列表。在iter选项中启用所有版本的情况下使用正向迭代器。key现在将归发布列表所有。因此，请确保它不会在其他地方重复使用。
 func ReadPostingList(key []byte, it *badger.Iterator) (*List, error) {
 	// Previously, ReadPostingList was not checking that a multi-part list could only
 	// be read via the main key. This lead to issues during rollup because multi-part
 	// lists ended up being rolled-up multiple times. This issue was caught by the
 	// uid-set Jepsen test.
-	pk, err := x.Parse(key)
+	// 以前，ReadPostingList没有检查多部分列表是否只能通过主键读取。这会导致汇总过程中出现问题，因为多部分列表最终会被多次汇总。uid集Jepsen测试发现了此问题。
+	pk, err := x.Parse(key) // 解析key，只用于下面的的非法判断，去badger查值还是用key
 	if err != nil {
 		return nil, errors.Wrapf(err, "while reading posting list with key [%v]", key)
 	}
@@ -551,11 +553,11 @@ func ReadPostingList(key []byte, it *badger.Iterator) (*List, error) {
 	}
 
 	l := new(List)
-	l.key = key
-	l.plist = new(pb.PostingList)
+	l.key = key //设置本PostingList的Key
+	l.plist = new(pb.PostingList) //new一个不可变层
 	l.minTs = 0
 
-	// We use the following block of code to trigger incremental rollup on this key.
+	// We use the following block of code to trigger incremental rollup on this key.//我们使用以下代码块来触发此key的增量汇总。
 	deltaCount := 0
 	defer func() {
 		if deltaCount > 0 {
@@ -568,58 +570,59 @@ func ReadPostingList(key []byte, it *badger.Iterator) (*List, error) {
 		}
 	}()
 
-	// Iterates from highest Ts to lowest Ts
+	// Iterates from highest Ts to lowest Ts //从最高版本Ts迭代到最低版本Ts（每一个item对应一个kv对）
 	for it.Valid() {
 		item := it.Item()
 		if !bytes.Equal(item.Key(), l.key) {
 			break
 		}
-		l.maxTs = x.Max(l.maxTs, item.Version())
-		if item.IsDeletedOrExpired() {
+		l.maxTs = x.Max(l.maxTs, item.Version()) // 设置在本List的最大版本号
+		if item.IsDeletedOrExpired() { // 如果当前entry过期了或者被删除了，直接跳过
 			// Don't consider any more versions.
 			break
 		}
 
-		switch item.UserMeta() {
-		case BitEmptyPosting:
-			return l, nil
-		case BitCompletePosting:
-			if err := unmarshalOrCopy(l.plist, item); err != nil {
-				return nil, err
-			}
+		switch item.UserMeta() { // UserMeta返回用户设置的UserMeta。通常，这个字节（可选地由用户设置）用于解释值。应该是Dgraph在执行突变时自己设置的
+			case BitEmptyPosting: // 遍历到为空的了，就直接返回即可
+				return l, nil
+			case BitCompletePosting: // 已经是完整全部的目标posting了，直接可以跳出当前函数返回了（即遍历到了不可变层的那个kv对）
+				if err := unmarshalOrCopy(l.plist, item); err != nil { // 赋值给plist
+					return nil, err
+				}
 
-			l.minTs = item.Version()
-			// No need to do Next here. The outer loop can take care of skipping
-			// more versions of the same key.
-			return l, nil
-		case BitDeltaPosting:
-			err := item.Value(func(val []byte) error {
-				pl := &pb.PostingList{}
-				if err := proto.Unmarshal(val, pl); err != nil {
-					return err
+				l.minTs = item.Version() // 设置不可变层的commitTS
+				// No need to do Next here. The outer loop can take care of skipping
+				// more versions of the same key.
+				// 这里不需要做下一步。外循环可以跳过同一密钥的更多版本。
+				return l, nil
+			case BitDeltaPosting: // 当前遍历到了增量（即可变层的数据），注意增量是可以有多个的（即每个增量对应一个kv对）
+				err := item.Value(func(val []byte) error {
+					pl := &pb.PostingList{}
+					if err := proto.Unmarshal(val, pl); err != nil {
+						return err
+					}
+					pl.CommitTs = item.Version()
+					if l.mutationMap == nil { // 若可变层对象为空，那么就新建一个可变层对象
+						l.mutationMap = newMutableLayer()
+					}
+					l.mutationMap.insertCommittedPostings(pl) // 加入可变层对象中
+					return nil
+				})
+				if err != nil {
+					return nil, err
 				}
-				pl.CommitTs = item.Version()
-				if l.mutationMap == nil {
-					l.mutationMap = newMutableLayer()
-				}
-				l.mutationMap.insertCommittedPostings(pl)
-				return nil
-			})
-			if err != nil {
-				return nil, err
-			}
-			deltaCount++
-		case BitSchemaPosting:
-			return nil, errors.Errorf(
-				"Trying to read schema in ReadPostingList for key: %s", hex.Dump(key))
-		default:
-			return nil, errors.Errorf(
-				"Unexpected meta: %d for key: %s", item.UserMeta(), hex.Dump(key))
+				deltaCount++ // 计数++
+			case BitSchemaPosting: //读到了schema，这里不能读到schema，有错误出现！！！
+				return nil, errors.Errorf(
+					"Trying to read schema in ReadPostingList for key: %s", hex.Dump(key))
+			default:
+				return nil, errors.Errorf(
+					"Unexpected meta: %d for key: %s", item.UserMeta(), hex.Dump(key))
 		}
-		if item.DiscardEarlierVersions() {
+		if item.DiscardEarlierVersions() { // DiscardEarlierVersions返回item是否在创建时具有在有多个可用密钥时丢弃早期版本的选项。
 			break
 		}
-		it.Next()
+		it.Next() // 指标下移
 	}
 	return l, nil
 }
@@ -627,13 +630,14 @@ func ReadPostingList(key []byte, it *badger.Iterator) (*List, error) {
 func copyList(l *List) *List {
 	l.AssertRLock()
 	// No need to clone the immutable layer or the key since mutations will not modify it.
-	lCopy := &List{
+	// 不需要克隆不可变层或key，因为突变不会修改它。
+	lCopy := &List{  // 非深度克隆
 		minTs: l.minTs,
 		maxTs: l.maxTs,
 		key:   l.key,
-		plist: l.plist,
+		plist: l.plist, 
 	}
-	lCopy.mutationMap = l.mutationMap.clone()
+	lCopy.mutationMap = l.mutationMap.clone() // 可变层的深度克隆
 	return lCopy
 }
 
@@ -646,7 +650,7 @@ func (c *CachePL) Set(l *List, readTs uint64) {
 func (ml *MemoryLayer) readFromCache(key []byte, readTs uint64) *List {
 	cacheItem, ok := ml.cache.get(key) // NOTE:核心操作，ml是全局的内存层对象
 
-	if ok && cacheItem.list != nil && cacheItem.list.minTs <= readTs {
+	if ok && cacheItem.list != nil && cacheItem.list.minTs <= readTs { // 判断版本，如果本次读取的readTs大于minTs
 		cacheItem.list.RLock()
 		lCopy := copyList(cacheItem.list)
 		cacheItem.list.RUnlock()
@@ -656,20 +660,23 @@ func (ml *MemoryLayer) readFromCache(key []byte, readTs uint64) *List {
 	return nil
 }
 
+// NOTE:Dgraph与Badger的连接点，这个函数里面就主要都是Badger的一些方法调用，得到迭代器对象后，再由ReadPostingList对目标数据整合得到Dgraph的PostingList对象
 func (ml *MemoryLayer) readFromDisk(key []byte, pstore *badger.DB, readTs uint64) (*List, error) {
 	atomic.AddInt64(&ml.numDisksRead, 1)
-	txn := pstore.NewTransactionAt(readTs, false)
+	txn := pstore.NewTransactionAt(readTs, false) // 这个函数是badger托管模式下才会用到的函数（此时可以自定义ReadTs的值，即将时间戳的控制权交给了Dgraph）
 	defer txn.Discard()
 
 	// When we do rollups, an older version would go to the top of the LSM tree, which can cause
 	// issues during txn.Get. Therefore, always iterate.
+	// 当我们进行汇总时，旧版本将转到LSM树的顶部，这可能会在txn期间导致问题。得到。因此，始终迭代。
 	iterOpts := badger.DefaultIteratorOptions
 	iterOpts.AllVersions = true
 	iterOpts.PrefetchValues = false
 	itr := txn.NewKeyIterator(key, iterOpts)
+	// NewKeyIterator与在看Badger源码的NewIterator类似，但允许用户迭代单个键的所有版本。在内部，它在提供的opt中设置Prefix选项，并在从LSM树中拾取表之前使用该前缀额外运行布隆过滤器查找。
 	defer itr.Close()
-	itr.Seek(key)
-	l, err := ReadPostingList(key, itr)
+	itr.Seek(key) //如果存在，Seek将查找提供的密钥。如果不存在，如果向前迭代，它将寻求比提供的键大的下一个最小键。如果向后迭代，行为将发生逆转。
+	l, err := ReadPostingList(key, itr) // NOTE:核心操作，使用迭代器构造DGraph的PostingList对象
 	if err != nil {
 		return l, err
 	}
@@ -687,28 +694,29 @@ func (ml *MemoryLayer) saveInCache(key []byte, l *List) {
 	ml.cache.set(key, cacheItem) // 设置缓存
 }
 
+// 下面这个函数主要做的就是依次在缓存、磁盘中找或者new出目标PostingList对象，需要特别注意的是，下面设置的readTs只是一个有关本次查询的readTs（与Badger的ReadTs在查询流程上一个东西，一个值），而MinTs则是该类数据的可变层与不可变层分界线TS（貌似不可变层就是一个单独的KV对）。
 func (ml *MemoryLayer) ReadData(key []byte, pstore *badger.DB, readTs uint64) (*List, error) {
 	// We first try to read the data from cache, if it is present. If it's not present, then we would read the
 	// latest data from the disk. This would get stored in the cache. If this read has a minTs > readTs then
 	// we would have to read the correct timestamp from the disk.
 	// 我们首先尝试从缓存中读取数据（如果存在）。如果它不存在，那么我们将从磁盘读取最新数据。这将被存储在缓存中。如果此读取具有minTs>readTs，那么我们必须从磁盘读取正确的时间戳（minTs是不变层时间戳）。
-	// zzlTODO:看到这里了，具体怎么读uid的呢？
 	l := ml.readFromCache(key, readTs) // NOTE:核心操作，先尝试从Cache中读取PostList
+	// zzlTODO:看到这里了，大部分都看懂了，但还有一个待解决的点，就是为什么下面先读取了所有版本，然后才会再去读当前查询的版本呢？
 	if l != nil { // 如果读出来数据了，就直接跳出来
-		l.mutationMap.setTs(readTs) // 设置当下PostList的可变层的readTs
+		l.mutationMap.setTs(readTs) // 设置读出来的PostList对象的可变层的readTs
 		return l, nil
 	}
-	l, err := ml.readFromDisk(key, pstore, math.MaxUint64) // NOTE:核心操作，尝试从磁盘中读取
+	l, err := ml.readFromDisk(key, pstore, math.MaxUint64) // NOTE:核心操作，尝试从磁盘中读取（readTs设置为最大值，代表读取所有版本）
 	if err != nil {
 		return nil, err
 	}
-	ml.saveInCache(key, l) // 将刚从磁盘读取的数据，保存到缓存中
-	if l.minTs == 0 || readTs >= l.minTs {
+	ml.saveInCache(key, l) // 将刚从磁盘读取的PostList，保存到缓存中
+	if l.minTs == 0 || readTs >= l.minTs { // 如果当前l的不可变层对象无目标数据，或者当次查询的readTs大于等于不可变层KV对的CommitTs
 		l.mutationMap.setTs(readTs)
 		return l, nil
 	}
 
-	l, err = ml.readFromDisk(key, pstore, readTs)
+	l, err = ml.readFromDisk(key, pstore, readTs) // NOTE:核心操作，尝试从磁盘中读取（readTs设置为本次查询的readTs）
 	if err != nil {
 		return nil, err
 	}
@@ -734,7 +742,7 @@ func getNew(key []byte, pstore *badger.DB, readTs uint64) (*List, error) {
 		return nil, badger.ErrDBClosed
 	}
 
-	l, err := memoryLayer.ReadData(key, pstore, readTs) //NOTE:核心操作，读取目标数据，先看缓存，再看磁盘（memoryLayer是个全局单例变量）
+	l, err := memoryLayer.ReadData(key, pstore, readTs) //NOTE:核心操作，读取目标数据，先看缓存，再看磁盘（memoryLayer是个全局单例内存层对象）
 	if err != nil {
 		return l, err
 	}

@@ -80,13 +80,13 @@ const (
 type List struct {
 	x.SafeMutex
 	key         []byte
-	plist       *pb.PostingList
-	mutationMap *MutableLayer //可变层
-	minTs       uint64 // commit timestamp of immutable layer, reject reads before this ts. //提交不可变层的时间戳，拒绝在此ts之前的读取。
+	plist       *pb.PostingList // 不可变层！对应到Badger里面就是一个entry，即一个kv对
+	mutationMap *MutableLayer // 可变层，里面会有多个PostingList对象
+	minTs       uint64 // commit timestamp of immutable layer, reject reads before this ts. //不可变层的commitTs时间戳，拒绝在此ts之前的读取(不可变层是单个KV对，再在此之前就不应该有数据了)
 	maxTs       uint64 // max commit timestamp seen for this list. // 此列表中看到的最大提交时间戳。
 }
 
-// NOTE:2025060400 PostingList的可变层与不可变层
+// NOTE:2025060400 PostingList的可变层与不可变层（注意可变层与不可变层仅仅只是DGraph的一个概念，不是对应内存与磁盘这俩，其都本质上都存在Badger磁盘中，应该是为了压缩数据总大小而来的一个概念）
 // MutableLayer is the structure that will store mutable layer of the posting list. Every posting list has an immutable
 // layer and a mutable layer. Whenever posting is added into a list, it's added as deltas into the posting list. Once
 // this list of deltas keep piling up, they are converted into a complete posting list through rollup and stored as
@@ -97,10 +97,10 @@ type List struct {
 // we start seeing concurrent writes and reads into the map causing issues. With this new MutableLayer struct, we
 // know that committedEntries will not get changed and this can be copied by reference without any issues.
 // This structure, makes it much faster to clone the Mutable Layer and be faster.
-// 1.MutableLayer是存储发布列表可变层的结构。每个PostingList都有一个不可变层和一个可变层。每当posting被添加到List中时，它都会作为增量添加到发布列表中。
-//   一旦这个增量列表不断堆积，它们就会通过汇总转换为一个完整的PostingList，并存储为不可变层。可变层包含最后一个完整PostingList后的所有增量。
+// 1.MutableLayer是存储发布列表可变层的结构。每个PostingList都有一个不可变层和一个可变层。每当posting被添加到List中时，它都会作为增量添加到可变层mutationMap中。
+//   一旦这个增量列表不断堆积，它们就会通过汇总转换为一个完整的PostingList，并存储为不可变层plist。可变层包含最后一个完整PostingList后的所有增量。
 // 2.可变层曾经是从commitTs到PostingList的映射。
-// 3.每个启动的事务都会获得自己的发布列表副本，并将其存储在txn的localCache中。每次我们复制PostingList时，我们都必须深度克隆映射。
+// 3.每个启动的事务都会获得自己的发布列表副本，并将其存储在txn的localCache中。每次我们复制PostingList时（应该指的是可变层），我们都必须深度克隆映射。
 //   如果我们通过引用给出相同的映射，我们开始看到并发写入和读取映射会导致问题。使用这个新的MutableLayer结构，我们知道commitedEntries不会被更改，并且可以通过引用复制而不会出现任何问题。
 // 	 这种结构使克隆可变层变得更快。
 
@@ -108,15 +108,14 @@ type MutableLayer struct { // PostingList的可变层
 	// Since we are storing the committedEntries and currentEntries separately. We can cache things that are
 	// going to be used repeatedly.
 	// 因为我们分别存储commitedEntries和currentEntries。我们可以缓存将被重复使用的东西。
-	committedEntries map[uint64]*pb.PostingList
+	committedEntries map[uint64]*pb.PostingList //缓存一个个增量PostingList，注意这个map的key是pl.CommitTs
 	currentEntries   *pb.PostingList
-	readTs           uint64
-
+	readTs           uint64  // 当次查询结果对应的查询条件内的readTs
 
 	deleteAllMarker uint64 // Stores the latest deleteAllMarker found in the posting list //存储发布列表中找到的最新deleteAllMarker
 	// including currentEntries.包含currentEntries
 	committedUids     map[uint64]*pb.Posting // Stores the uid to posting mapping in committedEntries. 将uid到posting的映射存储在commitedEntries中。
-	committedUidsTime uint64                 // Stores the latest commitTs in the committedEntries. 将最新的commitTs存储在commitedEntries中。
+	committedUidsTime uint64                 // Stores the latest commitTs in the committedEntries. 存储的是committedEntries中各个pl的最新的CommitTs
 	length            int                    // Stores the length of the posting list until committedEntries. 存储postingList的长度，直到提交条目为止。
 
 	// We also cache some things required for us to update currentEntries faster
@@ -146,6 +145,8 @@ func (mm *MutableLayer) setTs(readTs uint64) {
 // things from the existing mutable layer for the new list. It basically copies committedEntries using reference and
 // ignores currentEntires and readTs. Similarly, all the cache items related to currentEntries are ignored and
 // committedEntries are presevred for the new list.
+// 此函数为新事务克隆一个现有的可变层。此函数确保我们从现有的可变层为新列表复制正确的内容。
+// 它基本上使用引用复制commitedEntries，忽略currentEntires和readTs。同样，与currentEntries相关的所有缓存项都将被忽略，并为新列表提供commitedEntries。
 func (mm *MutableLayer) clone() *MutableLayer {
 	if mm == nil {
 		return nil
@@ -314,6 +315,7 @@ func (mm *MutableLayer) iterate(f func(ts uint64, pl *pb.PostingList), readTs ui
 // insertCommittedPostings inserts an old committed posting in the mutable layer. It also updates fields that are
 // cached. This includes deleteAllMarker, length and committedUids map. this should be called while
 // building the list only.
+// insertCommittedPostings在可变层中插入一个旧的已提交帖子。它还会更新缓存的字段。这包括deleteAllMarker、length和committedUids映射。仅在构建列表时才应调用此函数。
 func (mm *MutableLayer) insertCommittedPostings(pl *pb.PostingList) {
 	if mm.committedUidsTime == math.MaxUint64 {
 		mm.committedUidsTime = 0
@@ -325,8 +327,8 @@ func (mm *MutableLayer) insertCommittedPostings(pl *pb.PostingList) {
 		mm.deleteAllMarker = 0
 	}
 
-	mm.committedUidsTime = x.Max(pl.CommitTs, mm.committedUidsTime)
-	mm.committedEntries[pl.CommitTs] = pl
+	mm.committedUidsTime = x.Max(pl.CommitTs, mm.committedUidsTime) //设置可变层的最大CommitTs
+	mm.committedEntries[pl.CommitTs] = pl // 加入
 
 	for _, mpost := range pl.Postings {
 		mpost.CommitTs = pl.CommitTs

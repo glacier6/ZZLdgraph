@@ -3286,7 +3286,7 @@ type PostingList struct {
 
 	Pack     *UidPack   `protobuf:"bytes,1,opt,name=pack,proto3" json:"pack,omitempty"` // Encoded list of uids in this posting list.
 	Postings []*Posting `protobuf:"bytes,2,rep,name=postings,proto3" json:"postings,omitempty"`
-	CommitTs uint64     `protobuf:"varint,3,opt,name=commit_ts,json=commitTs,proto3" json:"commit_ts,omitempty"` // More inclination towards smaller values.
+	CommitTs uint64     `protobuf:"varint,3,opt,name=commit_ts,json=commitTs,proto3" json:"commit_ts,omitempty"` // More inclination towards smaller values.//更倾向于较小的值。在去磁盘读增量的时候会设置，由于读kv版本是从大一直读到小的，所以，这个值也是最小版本KV的commitedTs
 	Splits   []uint64   `protobuf:"varint,4,rep,packed,name=splits,proto3" json:"splits,omitempty"`
 }
 

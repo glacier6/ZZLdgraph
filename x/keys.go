@@ -316,6 +316,7 @@ func CountKey(attr string, count uint32, reverse bool) []byte {
 }
 
 // ParsedKey represents a key that has been parsed into its multiple attributes.
+// ParsedKey表示已解析为多个属性的key。
 type ParsedKey struct {
 	Attr        string
 	Uid         uint64
@@ -550,6 +551,7 @@ func SplitKey(baseKey []byte, startUid uint64) ([]byte, error) {
 
 // Parse would parse the key. ParsedKey does not reuse the key slice, so the key slice can change
 // without affecting the contents of ParsedKey.
+// Parse将解析key。ParsedKey不重用key，因此key可以更改而不影响ParsedKey的内容。
 func Parse(key []byte) (ParsedKey, error) {
 	var p ParsedKey
 

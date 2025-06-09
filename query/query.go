@@ -80,18 +80,17 @@ import (
  *           |
  *           --> SubGraph [Attr = "name"]
  *
- * ALGORITHM:
- * This is a rough and simple algorithm of how to process this SubGraph query
- * and populate the results:
- *
- * For a given entity, a new SubGraph can be started off with NewGraph(id).
- * Given a SubGraph, is the Query field empty? [Step a]
- *   - If no, run (or send it to server serving the attribute) query
- *     and populate result.
- * Iterate over children and copy Result Uids to child Query Uids.
- *     Set Attr. Then for each child, use goroutine to run Step:a.
- * Wait for goroutines to finish.
- * Return errors, if any.
+ * ALGORITHM（算法）:
+ * This is a rough and simple algorithm of how to process this SubGraph query and populate the results:
+ * 这是一个粗略而简单的算法，用于处理此子图查询并填充结果：
+
+ * For a given entity, a new SubGraph can be started off with NewGraph(id). 对于给定的实体，可以用NewGraph（id）开始一个新的SubGraph。
+ * Given a SubGraph, is the Query field empty? [Step a] 给定一个子图，查询字段是否为空？[步骤a]
+ *   - If no, run (or send it to server serving the attribute) query and populate result. 如果没有，运行（或将其发送到提供属性的服务器）查询并填充结果。
+ * Iterate over children and copy Result Uids to child Query Uids. 迭代子对象并将Result Uids复制到子查询Uids
+ *     Set Attr. Then for each child, use goroutine to run Step:a. 设置Attr。然后，对于每个child，使用goroutine运行Step：a。
+ * Wait for goroutines to finish. 等待goroutines结束。
+ * Return errors, if any. 返回错误（如果有的话）。
  */
 
 // Latency is used to keep track of the latency involved in parsing and processing
