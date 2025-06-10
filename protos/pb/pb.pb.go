@@ -3152,6 +3152,8 @@ type UidBlock struct {
 	// list of integers, because when the PB is brought to memory, Go would always
 	// use 8-bytes per integer. Instead, storing it as a byte slice is a lot
 	// cheaper in memory.
+	// deltas包含用Varints编码的deltas。我们不将增量存储为整数列表，因为当PB被带到内存中时，Go总是每个整数使用8个字节。
+	// 相反，将其存储为字节片在内存中要便宜得多。
 	Deltas []byte `protobuf:"bytes,2,opt,name=deltas,proto3" json:"deltas,omitempty"`
 	// num_uids is the number of UIDs in the block. We are including this because
 	// we want to switch encoding to groupvarint encoding. Current avaialble open
@@ -3160,6 +3162,9 @@ type UidBlock struct {
 	// 32 MSBs are different, we will create a new block irrespective of whether
 	// the block is filled with the block_size or not. Default Blocksize is 256 so
 	// uint32 would be sufficient.
+	// num_uids是块中的UID数量。我们之所以包括这一点，是因为我们想将编码切换到组变量编码。
+	// 当前可用的开源版本实现了uint32的编码和解码。为了使用它，我们为不同的32位MSB基uid创建不同的块。
+	// 也就是说，如果32个MSB不同，我们将创建一个新块，而不管该块是否填充了block_size。默认块大小为256，因此uint32就足够了。
 	NumUids uint32 `protobuf:"varint,3,opt,name=num_uids,json=numUids,proto3" json:"num_uids,omitempty"`
 }
 
@@ -3284,7 +3289,7 @@ type PostingList struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Pack     *UidPack   `protobuf:"bytes,1,opt,name=pack,proto3" json:"pack,omitempty"` // Encoded list of uids in this posting list.
+	Pack     *UidPack   `protobuf:"bytes,1,opt,name=pack,proto3" json:"pack,omitempty"` // Encoded list of uids in this posting list.此发布列表中的uid编码列表。
 	Postings []*Posting `protobuf:"bytes,2,rep,name=postings,proto3" json:"postings,omitempty"`
 	CommitTs uint64     `protobuf:"varint,3,opt,name=commit_ts,json=commitTs,proto3" json:"commit_ts,omitempty"` // More inclination towards smaller values.//更倾向于较小的值。在去磁盘读增量的时候会设置，由于读kv版本是从大一直读到小的，所以，这个值也是最小版本KV的commitedTs
 	Splits   []uint64   `protobuf:"varint,4,rep,packed,name=splits,proto3" json:"splits,omitempty"`

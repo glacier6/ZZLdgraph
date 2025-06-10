@@ -538,7 +538,7 @@ func unmarshalOrCopy(plist *pb.PostingList, item *badger.Item) error {
 			// empty pl
 			return nil
 		}
-		return proto.Unmarshal(val, plist)
+		return proto.Unmarshal(val, plist) // 反序列化badger中KV对的Value字符切片，并且将数据自动填充到plist对象内部
 	})
 }
 
@@ -610,7 +610,7 @@ func ReadPostingList(key []byte, it *badger.Iterator) (*List, error) {
 			case BitEmptyPosting: // 遍历到为空的了，就直接返回即可
 				return l, nil
 			case BitCompletePosting: // 已经是完整全部的目标posting了，直接可以跳出当前函数返回了（即遍历到了不可变层的那个kv对）
-				if err := unmarshalOrCopy(l.plist, item); err != nil { // 赋值给plist
+				if err := unmarshalOrCopy(l.plist, item); err != nil { // NOTE:核心操作，反序列化value，并将相应的值赋给plist,注意目标UID在List.plist.Pack.Blocks中
 					return nil, err
 				}
 

@@ -50,6 +50,29 @@ query ZZLQuery($myname : string ="zzlFunName"){
   ]
 }
 
+// 方便观察层次
+{
+  "set":[
+    {
+  			"hjshaixuan":11,
+  			"hjname":"hjname1",
+  			"hjage":11,
+  			"hjfollower":{
+				  "hjfolname":"hjfolname1",
+          "hjfolage":11
+        }
+    },
+    {
+  			"hjshaixuan":22,
+  			"hjname":"hjname2",
+  			"hjage":22,
+  			"hjfollower":{
+				  "hjfolname":"hjfolname2",
+          "hjfolage":22
+        }
+    }
+  ]
+}
 
 删除
     {

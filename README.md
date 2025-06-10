@@ -84,7 +84,8 @@
           edgraph貌似是主要处理一些具体的查询变更事务
   - 2.17 发布列表的可变层与不可变层  NOTE:2025060400 
 ### (3) Dgraph代码太庞大了，下面按分支来看  
-  NOTE:4100  数据库绑定 各类请求的对应响应函数 的开端  
+  NOTE:4100  数据库绑定 各类请求的对应响应函数 的开端   
+  NOTE:202506100  查询功能的具体实现最核心的地方
 ### (4) GraphQL与DQL  
   - 4.1 GraphQL与DQL均是在Dgraph后端图数据之上实现的查询与操作语言。DQL受GraphQL启发，但其既不是 GraphQL 的超集也不是子集，但通常比 GraphQL 更强大。（虽然官网说大多数用户用GraphQL，但是也说了GraphQL是会转为DQL来执行的，所以可以统统用DQL，看代码也先只看DQL的）  
   - 4.2 Dgraph的Graphql HTTP为: http://xxx.xxx.xxx.xxx:8080/graphql 在请求的body里面定义是query还是mutate  

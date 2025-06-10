@@ -220,7 +220,8 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 
 	if queryTimeout != 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, queryTimeout)  //在上下文中设置超时时间
+		ctx, cancel = context.WithTimeout(ctx, time.Minute * 10)  //zzlHACK:将超时时间改为10分钟，方便测试 
+		// ctx, cancel = context.WithTimeout(ctx, queryTimeout)  //在上下文中设置超时时间
 		defer cancel()
 	}
 

@@ -784,7 +784,7 @@ func (qs *queryState) handleUidPostings(
 	if span != nil {
 		span.Annotatef(nil, "Number of uids: %d. args.srcFn: %+v", srcFn.n, args.srcFn) // 添加一个带有属性的注释
 	}
-	if srcFn.n == 0 {
+	if srcFn.n == 0 { // 没有待查寻的uid或者准确查询信息的话，直接返回
 		return nil
 	}
 
@@ -850,6 +850,7 @@ func (qs *queryState) handleUidPostings(
 
 			// Get or create the posting list for an entity, attribute combination.
 			pl, err := qs.cache.Get(key) // NOTE:核心操作，根据key生成一个posting-list对象，其内已经有目标UID了（在(*(*(*(*pl).plist).Pack).Blocks[0]).Base中）
+			// 这个一般按照正常流程的话，在这条线的最深层次那里的l反序列化后就会一路直接变成这里的pl
 			if err != nil {
 				return err
 			}
@@ -957,7 +958,9 @@ func (qs *queryState) handleUidPostings(
 				if i == 0 {
 					span.Annotate(nil, "default no facets")
 				}
-				uidList, err := pl.Uids(opts) // NOTE:核心操作，应该是从pl中筛选出来目标UID，opts是列表配置项，内有读时间戳，其内的大部分值由查询任务赋予
+				// zzlTODO:优先看这个！！看下面如何将一个非明码存储的uid块，转化为目标可见的uidLIst
+				uidList, err := pl.Uids(opts) // NOTE:核心操作，应该是从pl的List.plist.Pack.Blocks.Deltas中得到目标UID（pl中的uid在之前还不是明码存储，这是因为要更大化利用内存）
+				// opts是列表配置项，内有读时间戳，其内的大部分值由查询任务赋予
 				if err != nil {
 					return err
 				}
@@ -1141,19 +1144,25 @@ func (qs *queryState) helpProcessTask(ctx context.Context, q *pb.Query, gid uint
 	if err != nil {
 		return nil, err
 	}
-	// NOTE:核心操作，下面俩是最核心的操作，调用对应的函数获取数据（out在args内的，）
-	if needsValPostings { // 如果是要获取值的posting list
+	// NOTE:202506100
+	// NOTE:核心操作，下面俩是最核心的操作，函数级别的某些（如has）是会先到下面多个if并列的各个函数中操作，得到一些初始的数据项，然后才会到下面两个最核心操作中运行（out在args内）
+	// zzlTODO:需要看整体的是怎么运作的？对于复杂一点的查询操作，在这里设置中断每次执行的不一样，是因为协程并行的问题？还是某个地方有缓存？
+	if needsValPostings { // 如果当前谓词是要获取值（即边的一端是值，进这里的前提是要已经有UID）
 		span.Annotate(nil, "handleValuePostings")
 		if err := qs.handleValuePostings(ctx, args); err != nil { //NOTE:核心操作，查询目标谓词所对应的值 // zzlTODO:待看，怎么读值
 			return nil, err
 		}
-	} else {
+	} else { // 如果当前谓词要获取节点（即边的两端都是节点，或者anyofterms等精确查询函数要获取节点UID）
 		span.Annotate(nil, "handleUidPostings")
-		if err = qs.handleUidPostings(ctx, args, opts); err != nil { //NOTE:核心操作，查询目标节点的UID 
+		if err = qs.handleUidPostings(ctx, args, opts); err != nil { //NOTE:核心操作，查询目标谓词所对应的节点（anyofterms会先进到这里面，原因看下面）
+			// NOTE:重点！因为anyofterms需要谓词有索引，而在给某个加上索引后，数据库会马上在badger中为每一个应用该谓词的节点A添加一个键值对。
+			// 该键值对的Key相当于是把普通实体的原来放UID的位置改成放A节点的该谓词的值，而Value则内含A节点的UID（如果多个节点有关该谓词的值相同，则公用该KV对，即一个Value可以解析出来多个KV对）
 			return nil, err
 		}
 	}
 
+	// NOTE:下面的是一些函数的核心操作，如果当前层（比如一般最外层的has函数）是下面这几种类型的，会分别跳到对应的逻辑来获取值，比如has会先获取一些uid节点，然后才会再去上面两个最核心的操作取目标值
+	// 但是需要注意的是也有比如anyofterms等函数因为是准确的信息，所以只需要上面两个最核心函数就可以查出来最终值的函数
 	if srcFn.fnType == hasFn && srcFn.isFuncAtRoot {
 		span.Annotate(nil, "handleHasFunction")
 		if err := qs.handleHasFunction(ctx, q, out, srcFn); err != nil {
