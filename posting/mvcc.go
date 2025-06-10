@@ -585,7 +585,7 @@ func ReadPostingList(key []byte, it *badger.Iterator) (*List, error) {
 	deltaCount := 0
 	defer func() {
 		if deltaCount > 0 {
-			// If deltaCount is high, send it to high priority channel instead.
+			// If deltaCount is high, send it to high priority channel instead. //如果deltaCount为高，则将其发送到高优先级通道。
 			if deltaCount > 500 {
 				IncrRollup.addKeyToBatch(key, 0)
 			} else {
@@ -724,7 +724,7 @@ func (ml *MemoryLayer) ReadData(key []byte, pstore *badger.DB, readTs uint64) (*
 	// we would have to read the correct timestamp from the disk.
 	// 我们首先尝试从缓存中读取数据（如果存在）。如果它不存在，那么我们将从磁盘读取最新数据。这将被存储在缓存中。如果此读取具有minTs>readTs，那么我们必须从磁盘读取正确的时间戳（minTs是不变层时间戳）。
 	l := ml.readFromCache(key, readTs) // NOTE:核心操作，先尝试从Cache中读取PostList
-	// zzlTODO:看到这里了，大部分都看懂了，但还有一个待解决的点，就是为什么下面先读取了所有版本，然后才会再去读当前查询的版本呢？
+	// zzlTODO:看到这里了，大部分都看懂了，但还有一个待解决的点，就是为什么下面先读取了所有版本，然后才会再去读当前查询的版本呢？以及key值应该是不相同把，相同的话不怕Badger的合并给合并了？
 	if l != nil { // 如果读出来数据了，就直接跳出来
 		l.mutationMap.setTs(readTs) // 设置读出来的PostList对象的可变层的readTs
 		return l, nil

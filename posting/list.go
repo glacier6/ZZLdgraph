@@ -1741,6 +1741,7 @@ func (l *List) ApproxLen() int {
 // Uids返回给定某些查询参数的UID。
 // 我们必须在应用（偏移、计数）之前应用过滤。
 // 警告：仅为了获取UID而调用此函数代价高昂
+// 下面这个函数的代码在24.1变了，但是整体逻辑没有变化，主要就是多了两个if
 func (l *List) Uids(opt ListOptions) (*pb.List, error) { // l是一个posting.list对象
 	if opt.First == 0 {
 		opt.First = math.MaxInt32
@@ -1751,7 +1752,7 @@ func (l *List) Uids(opt ListOptions) (*pb.List, error) { // l是一个posting.li
 		l.RLock()
 		defer l.RUnlock()
 		// Use approximate length for initial capacity.
-		res := make([]uint64, 0, l.ApproxLen())
+		res := make([]uint64, 0, l.ApproxLen()) // 创建UID容器
 		out := &pb.List{}
 
 		if l.mutationMap.len() == 0 && opt.Intersect != nil && len(l.plist.Splits) == 0 {
@@ -1762,8 +1763,10 @@ func (l *List) Uids(opt ListOptions) (*pb.List, error) { // l是一个posting.li
 			return out, nil, false
 		}
 
+		// 下面这一块是多的
 		// If we need to intersect and the number of elements are small, in that case it's better to
 		// just check each item is present or not.
+		// 如果我们需要相交，并且元素数量很小，在这种情况下，最好检查每个项目是否存在。
 		if opt.Intersect != nil && len(opt.Intersect.Uids) < l.ApproxLen() {
 			// Cache the iterator as it makes the search space smaller each time.
 			var pitr pIterator
@@ -1781,15 +1784,17 @@ func (l *List) Uids(opt ListOptions) (*pb.List, error) { // l是一个posting.li
 			return out, nil, false
 		}
 
+		// 下面这一块也是多的
 		// If we are going to iterate over the list, in that case we only need to read between min and max
 		// of opt.Intersect.
+		// 如果我们要迭代列表，在这种情况下，我们只需要读取opt的最小值和最大值之间的值。横断。
 		var uidMin, uidMax uint64 = 0, 0
 		if opt.Intersect != nil && len(opt.Intersect.Uids) > 0 {
 			uidMin = opt.Intersect.Uids[0]
 			uidMax = opt.Intersect.Uids[len(opt.Intersect.Uids)-1]
 		}
 
-		err := l.iterate(opt.ReadTs, opt.AfterUid, func(p *pb.Posting) error {
+		err := l.iterate(opt.ReadTs, opt.AfterUid, func(p *pb.Posting) error { // NOTE:核心操作，在这个iterate中获取到结果，迭代的元素是每一个posting
 			if p.PostingType == pb.Posting_REF {
 				if p.Uid < uidMin {
 					return nil

@@ -219,7 +219,7 @@ func TypeKey(attr string) []byte {
 // 存储在此密钥中的分割和第一个字节将被设置为ByteSplit。
 func DataKey(attr string, uid uint64) []byte { // attr是谓词
 	extra := 1 + 8 // ByteData + UID
-	buf, prefixLen := generateKey(DefaultPrefix, attr, extra)
+	buf, prefixLen := generateKey(DefaultPrefix, attr, extra) 
 
 	rest := buf[prefixLen:]
 	rest[0] = ByteData
