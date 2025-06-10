@@ -71,6 +71,9 @@ var (
 	// LatencyMs is the latency of the various Dgraph operations.
 	LatencyMs = ostats.Float64("latency",
 		"Latency of the various methods", ostats.UnitMilliseconds)
+	// BadgerReadLatencyMs is the latency of various different predicate reads from badger.
+	BadgerReadLatencyMs = ostats.Float64("badger_read_latency_ms",
+		"Latency of the various methods", ostats.UnitMilliseconds)
 
 	// Point-in-time metrics.
 
@@ -147,6 +150,12 @@ var (
 	// RaftLeaderChanges records the total number of leader changes seen.
 	RaftLeaderChanges = ostats.Int64("raft_leader_changes_total",
 		"Total number of leader changes seen", ostats.UnitDimensionless)
+	NumPostingListCacheRead = ostats.Int64("num_posting_list_cache_reads",
+		"Number of times cache was read", ostats.UnitDimensionless)
+	NumPostingListCacheReadFail = ostats.Int64("num_posting_list_cache_reads_fail",
+		"Number of times cache was read", ostats.UnitDimensionless)
+	NumPostingListCacheSave = ostats.Int64("num_posting_list_cache_saves",
+		"Number of times item was saved in cache", ostats.UnitDimensionless)
 
 	// Conf holds the metrics config.
 	// TODO: Request statistics, latencies, 500, timeouts
@@ -196,9 +205,37 @@ var (
 			TagKeys:     allTagKeys,
 		},
 		{
+			Name:        BadgerReadLatencyMs.Name(),
+			Measure:     BadgerReadLatencyMs,
+			Description: BadgerReadLatencyMs.Description(),
+			Aggregation: defaultLatencyMsDistribution,
+			TagKeys:     allTagKeys,
+		},
+		{
 			Name:        NumQueries.Name(),
 			Measure:     NumQueries,
 			Description: NumQueries.Description(),
+			Aggregation: view.Count(),
+			TagKeys:     allTagKeys,
+		},
+		{
+			Name:        NumPostingListCacheRead.Name(),
+			Measure:     NumPostingListCacheRead,
+			Description: NumPostingListCacheRead.Description(),
+			Aggregation: view.Count(),
+			TagKeys:     allTagKeys,
+		},
+		{
+			Name:        NumPostingListCacheReadFail.Name(),
+			Measure:     NumPostingListCacheReadFail,
+			Description: NumPostingListCacheReadFail.Description(),
+			Aggregation: view.Count(),
+			TagKeys:     allTagKeys,
+		},
+		{
+			Name:        NumPostingListCacheSave.Name(),
+			Measure:     NumPostingListCacheSave,
+			Description: NumPostingListCacheSave.Description(),
 			Aggregation: view.Count(),
 			TagKeys:     allTagKeys,
 		},

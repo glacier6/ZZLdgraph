@@ -29,6 +29,7 @@ import (
 	"github.com/golang/glog"
 	"github.com/pkg/errors"
 	ostats "go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/dgraph-io/badger/v4"
@@ -347,9 +348,9 @@ func RemoveCacheFor(key []byte) {
 type Cache struct {
 	data *ristretto.Cache[[]byte, *CachePL]
 
-	numCacheRead      int64
-	numCacheReadFails int64
-	numCacheSave      int64
+	numCacheRead      atomic.Int64
+	numCacheReadFails atomic.Int64
+	numCacheSave      atomic.Int64
 }
 
 func (c *Cache) wait() {
@@ -365,15 +366,14 @@ func (c *Cache) get(key []byte) (*CachePL, bool) {
 	}
 	val, ok := c.data.Get(key)
 	if !ok {
-		atomic.AddInt64(&c.numCacheReadFails, 1)
+		c.numCacheReadFails.Add(1)
 		return val, ok
 	}
 	if val.list == nil {
-		atomic.AddInt64(&c.numCacheReadFails, 1)
+		c.numCacheReadFails.Add(1)
 		return nil, false
 	}
-	atomic.AddInt64(&c.numCacheRead, 1)
-	c.numCacheRead += 1
+	c.numCacheRead.Add(1)
 	return val, true
 }
 
@@ -381,7 +381,7 @@ func (c *Cache) set(key []byte, i *CachePL) {
 	if c == nil {
 		return
 	}
-	c.numCacheSave += 1
+	c.numCacheSave.Add(1)
 	c.data.Set(key, i, 1)
 }
 
@@ -401,14 +401,13 @@ func (c *Cache) clear() {
 
 type MemoryLayer struct {
 	// config
-	deleteOnUpdates bool
+	removeOnUpdate bool
 
 	// data
 	cache *Cache
 
 	// metrics
-	statsHolder  *StatsHolder
-	numDisksRead int64
+	statsHolder *StatsHolder
 }
 
 func (ml *MemoryLayer) clear() {
@@ -422,9 +421,9 @@ func GetStatsHolder() *StatsHolder {
 	return memoryLayer.statsHolder
 }
 
-func initMemoryLayer(cacheSize int64, deleteOnUpdates bool) *MemoryLayer {
+func initMemoryLayer(cacheSize int64, removeOnUpdate bool) *MemoryLayer {
 	ml := &MemoryLayer{}
-	ml.deleteOnUpdates = deleteOnUpdates
+	ml.removeOnUpdate = removeOnUpdate
 	ml.statsHolder = NewStatsHolder()
 	if cacheSize > 0 {
 		cache, err := ristretto.NewCache[[]byte, *CachePL](&ristretto.Config[[]byte, *CachePL]{
@@ -448,6 +447,15 @@ func initMemoryLayer(cacheSize int64, deleteOnUpdates bool) *MemoryLayer {
 			for range ticker.C {
 				// Record the posting list cache hit ratio
 				ostats.Record(context.Background(), x.PLCacheHitRatio.M(m.Ratio()))
+
+				x.NumPostingListCacheSave.M(ml.cache.numCacheRead.Load())
+				ml.cache.numCacheSave.Store(0)
+
+				x.NumPostingListCacheRead.M(ml.cache.numCacheRead.Load())
+				ml.cache.numCacheRead.Store(0)
+
+				x.NumPostingListCacheReadFail.M(ml.cache.numCacheReadFails.Load())
+				ml.cache.numCacheReadFails.Store(0)
 			}
 		}()
 
@@ -479,7 +487,7 @@ func (ml *MemoryLayer) updateItemInCache(key string, delta []byte, startTs, comm
 		return
 	}
 
-	if ml.deleteOnUpdates {
+	if ml.removeOnUpdate {
 		// TODO We should mark the key as deleted instead of directly deleting from the cache.
 		ml.del([]byte(key))
 		return
@@ -496,8 +504,14 @@ func (ml *MemoryLayer) updateItemInCache(key string, delta []byte, startTs, comm
 		p := new(pb.PostingList)
 		x.Check(proto.Unmarshal(delta, p))
 
-		val.list.setMutationAfterCommit(startTs, commitTs, p, true)
-		checkForRollup([]byte(key), val.list)
+		if p.Pack == nil {
+			val.list.setMutationAfterCommit(startTs, commitTs, p, true)
+			checkForRollup([]byte(key), val.list)
+		} else {
+			// Data was rolled up. TODO figure out how is UpdateCachedKeys getting delta which is pack)
+			ml.del([]byte(key))
+		}
+
 	}
 }
 
@@ -542,6 +556,16 @@ func ReadPostingList(key []byte, it *badger.Iterator) (*List, error) {
 	if err != nil {
 		return nil, errors.Wrapf(err, "while reading posting list with key [%v]", key)
 	}
+
+	start := time.Now()
+	defer func() {
+		ms := x.SinceMs(start)
+		var tags []tag.Mutator
+		tags = append(tags, tag.Upsert(x.KeyMethod, "iterate"))
+		tags = append(tags, tag.Upsert(x.KeyStatus, pk.Attr))
+		_ = ostats.RecordWithTags(context.Background(), tags, x.BadgerReadLatencyMs.M(ms))
+	}()
+
 	if pk.HasStartUid {
 		// Trying to read a single part of a multi part list. This type of list
 		// should be read using using the main key because the information needed
@@ -662,7 +686,6 @@ func (ml *MemoryLayer) readFromCache(key []byte, readTs uint64) *List {
 
 // NOTE:Dgraph与Badger的连接点，这个函数里面就主要都是Badger的一些方法调用，得到迭代器对象后，再由ReadPostingList对目标数据整合得到Dgraph的PostingList对象
 func (ml *MemoryLayer) readFromDisk(key []byte, pstore *badger.DB, readTs uint64) (*List, error) {
-	atomic.AddInt64(&ml.numDisksRead, 1)
 	txn := pstore.NewTransactionAt(readTs, false) // 这个函数是badger托管模式下才会用到的函数（此时可以自定义ReadTs的值，即将时间戳的控制权交给了Dgraph）
 	defer txn.Discard()
 

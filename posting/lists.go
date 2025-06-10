@@ -18,9 +18,13 @@ package posting
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"sync"
+	"time"
 
+	ostats "go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/dgraph-io/badger/v4"
@@ -42,12 +46,12 @@ var (
 
 // Init initializes the posting lists package, the in memory and dirty list hash.
 // Init初始化  posting lists包、内存中和脏列表哈希。
-func Init(ps *badger.DB, cacheSize int64, deleteOnUpdates bool) {
+func Init(ps *badger.DB, cacheSize int64, removeOnUpdate bool) {
 	pstore = ps
 	closer = z.NewCloser(1)
 	go x.MonitorMemoryMetrics(closer)
 
-	memoryLayer = initMemoryLayer(cacheSize, deleteOnUpdates)
+	memoryLayer = initMemoryLayer(cacheSize, removeOnUpdate)
 }
 
 func UpdateMaxCost(maxCost int64) {
@@ -308,6 +312,33 @@ func (lc *LocalCache) getInternal(key []byte, readFromDisk bool) (*List, error) 
 	return lc.SetIfAbsent(skey, pl), nil
 }
 
+func (lc *LocalCache) readPostingListAt(key []byte) (*pb.PostingList, error) {
+	start := time.Now()
+	defer func() {
+		pk, _ := x.Parse(key)
+		ms := x.SinceMs(start)
+		var tags []tag.Mutator
+		tags = append(tags, tag.Upsert(x.KeyMethod, "get"))
+		tags = append(tags, tag.Upsert(x.KeyStatus, pk.Attr))
+		_ = ostats.RecordWithTags(context.Background(), tags, x.BadgerReadLatencyMs.M(ms))
+	}()
+
+	pl := &pb.PostingList{}
+	txn := pstore.NewTransactionAt(lc.startTs, false)
+	defer txn.Discard()
+
+	item, err := txn.Get(key)
+	if err != nil {
+		return nil, err
+	}
+
+	err = item.Value(func(val []byte) error {
+		return proto.Unmarshal(val, pl)
+	})
+
+	return pl, err
+}
+
 // GetSinglePosting retrieves the cached version of the first item in the list associated with the
 // given key. This is used for retrieving the value of a scalar predicats.
 func (lc *LocalCache) GetSinglePosting(key []byte) (*pb.PostingList, error) {
@@ -340,20 +371,7 @@ func (lc *LocalCache) GetSinglePosting(key []byte) (*pb.PostingList, error) {
 			return pl, err
 		}
 
-		pl = &pb.PostingList{}
-		txn := pstore.NewTransactionAt(lc.startTs, false)
-		defer txn.Discard()
-
-		item, err := txn.Get(key)
-		if err != nil {
-			return nil, err
-		}
-
-		err = item.Value(func(val []byte) error {
-			return proto.Unmarshal(val, pl)
-		})
-
-		return pl, err
+		return lc.readPostingListAt(key)
 	}
 
 	pl, err := getPostings()

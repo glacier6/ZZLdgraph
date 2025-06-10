@@ -158,12 +158,15 @@ they form a Raft group and provide synchronous replication.
 		Flag("percentage",
 			"Cache percentages summing up to 100 for various caches (FORMAT: PostingListCache,"+
 				"PstoreBlockCache,PstoreIndexCache)").
-		Flag("delete-on-updates",
-			"When set as true, we would delete the key from the cache once it's updated. If it's not "+
-				"we would update the value inside the cache. If the cache gets too full, it starts"+
-				" to get slow. So if your usecase has a lot of heavy mutations, this should be set"+
-				" as true. If you are modifying same data again and again, this should be set as"+
-				" false").
+		Flag("remove-on-update",
+			"Dgraph implements a read-through cache (using Ristretto) to optimize query performance. On "+
+				"mutation, the new value is first written to disk and then updated in the cache "+
+				"before the transaction completes to ensure there are no stale reads during parallel "+
+				"transactions. In mutation-heavy use cases, it may be more advantageous to remove "+
+				"the cache entry on mutation instead of updating the value, as this executes ~14\\%"+
+				"faster on write. The new value will be added to the cache the first time it is "+
+				"queried, slightly delaying that read. To use this approach, set the --cache "+
+				"remove-on-update flag.").
 		String())
 
 	flag.String("raft", worker.RaftDefaults, z.NewSuperFlagHelp(worker.RaftDefaults).
@@ -676,8 +679,8 @@ func run() {
 	x.AssertTruef(totalCache >= 0, "ERROR: Cache size must be non-negative")
 
 	cachePercentage := cache.GetString("percentage") // 得到缓存占比配置的字符串
-	deleteOnUpdates := cache.GetBool("delete-on-updates")
-	cachePercent, err := x.GetCachePercentages(cachePercentage, 3) // 解析出来得到百分比切片
+	removeOnUpdate := cache.GetBool("remove-on-update")
+	cachePercent, err := x.GetCachePercentages(cachePercentage, 3) // 解析出来得到的百分比切片
 	x.Check(err)
 	postingListCacheSize := (cachePercent[0] * (totalCache << 20)) / 100 // 得到postingList的cache大小
 	pstoreBlockCacheSize := (cachePercent[1] * (totalCache << 20)) / 100 // 得到Badger块缓存的cache大小
@@ -700,7 +703,7 @@ func run() {
 		WALDir:          Alpha.Conf.GetString("wal"),
 		CacheMb:         totalCache,
 		CachePercentage: cachePercentage,
-		DeleteOnUpdates: deleteOnUpdates,
+		RemoveOnUpdate:  removeOnUpdate,
 
 		MutationsMode:      worker.AllowMutations,
 		AuthToken:          security.GetString("token"),
@@ -830,11 +833,12 @@ func run() {
 		MaxAnnotationEventsPerSpan: 256,
 	})
 
+
 	// Posting will initialize index which requires schema. Hence, initialize
 	// schema before calling posting.Init().
 	// Posting的初始化需要schema。因此，在调用posting之前初始化schema。Init（）。
 	schema.Init(worker.State.Pstore) // 按照在BadgerDB中已有数据初始化schema
-	posting.Init(worker.State.Pstore, postingListCacheSize, deleteOnUpdates) // 初始化PostingList
+	posting.Init(worker.State.Pstore, postingListCacheSize, removeOnUpdate) // 初始化PostingList
 	defer posting.Cleanup()
 	worker.Init(worker.State.Pstore) //初始化worker，里面主要是对worker的gRPC进行初始化
 

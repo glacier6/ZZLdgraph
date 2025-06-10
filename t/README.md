@@ -16,7 +16,7 @@ dependencies by running `make check`.
 
 ### Go
 
-Version 1.22.7 or higher.
+Version 1.22.12 or higher.
 
 ### Docker
 

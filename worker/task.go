@@ -1866,7 +1866,7 @@ func planForEqFilter(fc *functionContext, pred string, uidlist []uint64) {
 	gotEstimate := false
 	for _, eqToken := range fc.tokens {
 		count := posting.GetStatsHolder().ProcessEqPredicate(pred, []byte(eqToken))
-		if count != math.MaxUint64 {
+		if count != math.MaxUint64 && count != 0 {
 			estimatedCount += count
 			gotEstimate = true
 		} else {

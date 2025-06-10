@@ -14,7 +14,7 @@ plugins:
 # Many linters and tools depend on runtimes - configure them here. (https://docs.trunk.io/runtimes)
 runtimes:
   enabled:
-    - go@1.22.7
+    - go@1.22.12
     - node@18.20.5
     - python@3.10.8
 
@@ -24,6 +24,7 @@ lint:
     - linters: [ALL]
       paths:
         - contrib/**
+        - protos/pb/pb.pb.go
   enabled:
     - actionlint@1.7.7
     - checkov@3.2.353
