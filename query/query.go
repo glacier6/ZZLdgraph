@@ -40,10 +40,11 @@ import (
 	"github.com/hypermodeinc/dgraph/v24/x"
 )
 
-// zzlTODO: NOTE:下面这个需要看一下，能说明ProcessGraph 的处理方式
+// NOTE:下面这个需要看一下，能说明ProcessGraph 的处理方式
 /*
  * QUERY:
  * Let's take this query from GraphQL as example:
+ * 让我们以GraphQL中的这个查询为例：
  * {
  *   me {
  *     id
@@ -59,8 +60,9 @@ import (
  *   }
  * }
  *
- * REPRESENTATION:
+ * REPRESENTATION:(代表：)
  * This would be represented in SubGraph format pb.y, as such:
+ * 这将以子图格式pb.y表示，如下所示：
  * SubGraph [result uid = me]
  *    |
  *  Children
@@ -106,6 +108,7 @@ type Latency struct {
 }
 
 // params contains the list of parameters required to execute a SubGraph.
+// params包含执行子图所需的参数列表。
 type params struct {
 	// Alias is the value of the predicate's alias, if any.
 	Alias string

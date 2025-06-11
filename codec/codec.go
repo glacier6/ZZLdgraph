@@ -325,7 +325,7 @@ func (d *Decoder) Seek(uid uint64, whence seekPos) []uint64 {
 	idx := sort.Search(len(pack.Blocks), blocksFunc()) // 找到目标块下标（通过判断uid的偏移量）
 	// The first block.Base >= uid.
 	if idx == 0 { // 如果第一个block都满足，那么直接解码即可
-		return d.UnpackBlock() // NOTE:核心操作，解析为明文uid列表 zzlTODO:看这里面怎么解析的
+		return d.UnpackBlock() // NOTE:核心操作，解析为明文uid列表
 	}
 	// The uid is the first entry in the block.
 	// 如果uid的值刚好等于当前下标块的起始UID的值
