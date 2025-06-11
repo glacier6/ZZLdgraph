@@ -534,7 +534,7 @@ type pIterator struct {
 	pidx       int // index of postings
 	plen       int
 
-	dec  *codec.Decoder
+	dec  *codec.Decoder // 解码器
 	uids []uint64
 	uidx int // Offset into the uids slice
 
@@ -577,8 +577,8 @@ func (it *pIterator) seek(l *List, afterUid, deleteBelowTs uint64) error {
 	}
 
 	it.uidPosting = &pb.Posting{}
-	it.dec = &codec.Decoder{Pack: it.plist.Pack}
-	it.uids = it.dec.Seek(it.afterUid, codec.SeekCurrent) //NOTE:核心操作，找到目标uids
+	it.dec = &codec.Decoder{Pack: it.plist.Pack} // 注意一个解码器对应一个打包块（而一个打包块内又包含多个块）
+	it.uids = it.dec.Seek(it.afterUid, codec.SeekCurrent) //NOTE:核心操作，解除编码，可以明文看到内容了，然后找到目标uids
 	it.uidx = 0
 
 	it.plen = len(it.plist.Postings)
@@ -722,7 +722,7 @@ type ListOptions struct {
 	ReadTs    uint64
 	AfterUid  uint64   // Any UIDs returned must be after this value. 所有搜索结果中的uid均须要大于AfterUid
 	Intersect *pb.List // Intersect results with this list of UIDs. //将结果与此UID列表相交。
-	First     int
+	First     int // 由sg对象内的count生成，实际对应的是用户在写查询语句时的那个first属性
 }
 
 // NewPosting takes the given edge and returns its equivalent representation as a posting.
@@ -1163,7 +1163,7 @@ func (l *List) iterate(readTs uint64, afterUid uint64, f func(obj *pb.Posting) e
 	)
 
 	// pitr iterates through immutable postings // pitr迭代不可变层的postings
-	err = pitr.seek(l, afterUid, deleteBelowTs)  // NOTE:核心操作，执行完这一行，就会把不可变层的结果uid放到pitr里面了
+	err = pitr.seek(l, afterUid, deleteBelowTs)  // NOTE:核心操作，遍历不可变层，执行完这一行，就会把不可变层的密文结果uid解析出来放到pitr里面了
 	if err != nil {
 		return errors.Wrapf(err, "cannot initialize iterator when calling List.iterate "+l.print())
 	}
@@ -1171,10 +1171,10 @@ func (l *List) iterate(readTs uint64, afterUid uint64, f func(obj *pb.Posting) e
 loop: // 标记下面的这个循环语句，然后方便在switch语句等内执行break直接跳出标记的for循环
 	for err == nil {
 		//下面这一块获取当前可变列表指向的mp元素
-		if midx < mlen {
+		if midx < mlen { // 1 得到可变列表中的mp
 			mp = mposts[midx]
 		} else {
-			mp = emptyPosting  // 1
+			mp = emptyPosting 
 		}
 
 		//下面这一块获取当前不可变列表指向的pp元素
@@ -1182,7 +1182,7 @@ loop: // 标记下面的这个循环语句，然后方便在switch语句等内�
 		switch {
 		case err != nil:
 			break loop
-		case valid:   // 2 判断pIterator是否有有效的uid
+		case valid:   // 2 判断pIterator是否有有效的uid，有效的话推出去得到PP
 			pp = pitr.posting()
 		default:
 			pp = emptyPosting
@@ -1729,10 +1729,11 @@ func (l *List) rollup(readTs uint64, split bool) (*rollupOutput, error) {
 }
 
 // ApproxLen returns an approximate count of the UIDs in the posting list.
+// ApproxLen返回发布列表中UID的近似计数。
 func (l *List) ApproxLen() int {
 	l.RLock()
 	defer l.RUnlock()
-	return l.mutationMap.len() + codec.ApproxLen(l.plist.Pack)
+	return l.mutationMap.len() + codec.ApproxLen(l.plist.Pack) // 可变层数量+不可变层
 }
 
 // Uids returns the UIDs given some query params.
@@ -1763,12 +1764,12 @@ func (l *List) Uids(opt ListOptions) (*pb.List, error) { // l是一个posting.li
 			return out, nil, false
 		}
 
-		// 下面这一块是多的
+		// 下面这一块是多的，处理相交的
 		// If we need to intersect and the number of elements are small, in that case it's better to
 		// just check each item is present or not.
 		// 如果我们需要相交，并且元素数量很小，在这种情况下，最好检查每个项目是否存在。
-		if opt.Intersect != nil && len(opt.Intersect.Uids) < l.ApproxLen() {
-			// Cache the iterator as it makes the search space smaller each time.
+		if opt.Intersect != nil && len(opt.Intersect.Uids) < l.ApproxLen() { // ApproxLen返回发布列表中UID的近似计数。
+			// Cache the iterator as it makes the search space smaller each time. // Cache迭代器，因为它每次都会使搜索空间变小。
 			var pitr pIterator
 			for _, uid := range opt.Intersect.Uids {
 				ok, _, err := l.findPostingWithItr(opt.ReadTs, uid, pitr)
@@ -1776,10 +1777,9 @@ func (l *List) Uids(opt ListOptions) (*pb.List, error) { // l是一个posting.li
 					return nil, err, false
 				}
 				if ok {
-					res = append(res, uid)
+					res = append(res, uid) // 追加当前筛选出来的UID
 				}
 			}
-
 			out.Uids = res
 			return out, nil, false
 		}
@@ -1802,15 +1802,17 @@ func (l *List) Uids(opt ListOptions) (*pb.List, error) { // l是一个posting.li
 				if p.Uid > uidMax && uidMax > 0 {
 					return ErrStopIteration
 				}
-				res = append(res, p.Uid)
+				res = append(res, p.Uid) // 追加
 
+				// opt的first与offset均由当前sg子图对象的Params里的count与offset生成，在NOTE:202506110处
+				// 而这个first就是用户在写查询函数时自己定义的那个first的参数
 				if opt.First < 0 {
-					// We need the last N.
+					// We need the last N.我们需要最后first个数个的数据
 					// TODO: This could be optimized by only considering some of the last UidBlocks.
 					if len(res) > -opt.First {
 						res = res[1:]
 					}
-				} else if len(res) > opt.First {
+				} else if len(res) > opt.First { // 如果超过了需要获取的数据个数，就return
 					return ErrStopIteration
 				}
 			}

@@ -109,23 +109,33 @@ type Latency struct {
 type params struct {
 	// Alias is the value of the predicate's alias, if any.
 	Alias string
+
 	// Count is the value of "first" parameter in the query.
+	// Count是查询任务中“first”参数的值，其也是由用户自定义的那个first的值。
 	Count int
+
 	// Offset is the value of the "offset" parameter.
+	// Offset是查询任务中“offset”参数的值。
 	Offset int
+
 	// AfterUID is the value of the "after" parameter.
 	AfterUID uint64
+
 	// DoCount is true if the count of the predicate is requested instead of its value.
 	DoCount bool
+
 	// GetUid is true if the uid should be returned. Used for debug requests.
 	GetUid bool
+
 	// Order is the list of predicates to sort by and their sort order.
 	Order []*pb.Order
+
 	// Langs is the list of languages and their preferred order for looking up a predicate value.
 	Langs []string
 
 	// Facet tells us about the requested facets and their aliases.
 	Facet *pb.FacetParams
+
 	// FacetsOrder keeps ordering for facets. Each entry stores name of the facet key and
 	// OrderDesc(will be true if results should be ordered by desc order of key) information for it.
 	FacetsOrder []*dql.FacetOrder
@@ -133,9 +143,11 @@ type params struct {
 	// Var is the name of the variable defined in this SubGraph
 	// (e.g. in "x as name", this would be x).
 	Var string
+
 	// FacetVar is a map of predicate to the facet variable alias
 	// for e.g. @facets(L1 as weight) the map would be { "weight": "L1" }
 	FacetVar map[string]string
+	
 	// NeedsVar is the list of variables required by this SubGraph along with their type.
 	NeedsVar []dql.VarContext
 
@@ -767,6 +779,7 @@ func (args *params) fill(gq *dql.GraphQuery) error {
 }
 
 // ToSubGraph converts the GraphQuery into the pb.SubGraph instance type.
+// ToSubGraph将GraphQuery转换为pb。SubGraph实例类型。
 func ToSubGraph(ctx context.Context, gq *dql.GraphQuery) (*SubGraph, error) {
 	sg, err := newGraph(ctx, gq)
 	if err != nil {
@@ -843,6 +856,7 @@ func newGraph(ctx context.Context, gq *dql.GraphQuery) (*SubGraph, error) {
 
 	// Remove pagination arguments from the query if @cascade is mentioned since
 	// pagination will be applied post processing the data.
+	// 如果提到@cascade，请从查询中删除分页参数，因为分页将在处理数据后应用。
 	if len(args.Cascade.Fields) > 0 {
 		args.addCascadePaginationArguments(gq)
 	}
@@ -961,6 +975,7 @@ func createTaskQuery(ctx context.Context, sg *SubGraph) (*pb.Query, error) {
 	}
 
 	// first is to limit how many results we want.
+	// first是限制我们想要多少结果。
 	first, offset := calculatePaginationParams(sg)
 
 	out := &pb.Query{
@@ -987,11 +1002,16 @@ func createTaskQuery(ctx context.Context, sg *SubGraph) (*pb.Query, error) {
 
 // calculatePaginationParams returns the (count, offset) of result
 // we need to proceed query further down.
+// calculatePagationParams返回我们进一步进行查询所需的结果（计数、偏移）。
+// NOTE:202506110 获得first与offset
 func calculatePaginationParams(sg *SubGraph) (int32, int32) {
 	// by default count is zero. (zero will retrieve all the results)
+	// 默认情况下，计数为零。（零将检索所有结果）
 	count := math.MaxInt32
 	// In order to limit we have to make sure that the this level met the following conditions
+	// 为了限制，我们必须确保此级别满足以下条件（简单来说就是一些需要对所有数据结果进行操作的情况下，均不能运行本函数）
 	// - No Filter (We can't filter until we have all the uids)
+	// - 无过滤器（在获得所有uid之前，我们无法进行过滤）
 	// {
 	//   q(func: has(name), first:1)@filter(eq(father, "schoolboy")) {
 	//     name
@@ -999,6 +1019,7 @@ func calculatePaginationParams(sg *SubGraph) (int32, int32) {
 	//   }
 	// }
 	// - No Ordering (We need all the results to do the sorting)
+	// - 无排序（我们需要所有结果进行排序）
 	// {
 	//   q(func: has(name), first:1, orderasc: name) {
 	//     name
@@ -1007,19 +1028,20 @@ func calculatePaginationParams(sg *SubGraph) (int32, int32) {
 	// - should not be one of those function which fetches some results and then do further
 	// processing to narrow down the result. For example: allofterm will fetch the index postings
 	// for each term and then do an intersection.
+	// - 不应该是获取一些结果然后进行进一步处理以缩小结果范围的函数之一。例如：allowterm将获取每个术语的索引发布，然后进行交集。
 	// TODO: Look into how we can optimize queries involving these functions.
 
 	shouldExclude := false
 	if sg.SrcFunc != nil {
 		switch sg.SrcFunc.Name {
 		case "regexp", "alloftext", "allofterms", "match":
-			shouldExclude = true
+			shouldExclude = true // 是不应该执行的情况
 		default:
-			shouldExclude = false
+			shouldExclude = false 
 		}
 	}
 
-	if len(sg.Filters) == 0 && len(sg.Params.Order) == 0 && !shouldExclude {
+	if len(sg.Filters) == 0 && len(sg.Params.Order) == 0 && !shouldExclude { // 无过滤器且无排序
 		if sg.Params.Count != 0 {
 			return int32(sg.Params.Count), int32(sg.Params.Offset)
 		}
@@ -2822,6 +2844,9 @@ type Request struct {
 // 填充子图和变量。
 // 它可以处理作为查询一部分的多个查询块。。
 // 本函数主要关注 大循环 与 在其内的小循环
+// NOTE:下面的顶层指的都是第一轮循环中的，实际整个工作流程是一直循环从上至下填充完善图的过程
+
+// zzlTODO:优先看这个，目前已经把简单的anyofterms的第一轮流程全看完了，那么后续轮是怎么启动的呢？
 func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 	span := otrace.FromContext(ctx) // FromContext返回存储在上下文中的Span，或者如果没有记录事件，则返回不记录事件的Span。
 	stop := x.SpanTimer(span, "query.ProcessQuery") //SpanTimer返回一个函数，用于记录给定跨度的持续时间。
@@ -2841,7 +2866,7 @@ func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 			return errors.Errorf("Invalid query. No function used at root and no aggregation" +
 				" or math variables found in the body.")
 		}
-		sg, err := ToSubGraph(ctx, gq) // 转为subGraph
+		sg, err := ToSubGraph(ctx, gq) // NOTE:核心操作，查询语句转为subGraph
 		if err != nil {
 			return errors.Wrapf(err, "while converting to subgraph")
 		}
@@ -2899,7 +2924,7 @@ func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 			if hasExecuted[idx] { // 如果已经开始执行了，那就直接跳出
 				continue
 			}
-			sg := req.Subgraphs[idx]
+			sg := req.Subgraphs[idx] // 取出来一个顶层子图
 			// Check the list for the requires variables.
 			if !canExecute(idx) { // 判断前置查询的变量是否已查询齐全，是否可以开始执行查询（即判断当某个查询有前置查询时，该前置查询是否已经执行完毕了）
 				continue

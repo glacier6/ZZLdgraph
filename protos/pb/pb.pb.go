@@ -731,9 +731,11 @@ type Query struct {
 	ExpandAll    bool         `protobuf:"varint,10,opt,name=expand_all,json=expandAll,proto3" json:"expand_all,omitempty"`        // expand all language variants.
 	ReadTs       uint64       `protobuf:"varint,13,opt,name=read_ts,json=readTs,proto3" json:"read_ts,omitempty"`
 	Cache        int32        `protobuf:"varint,14,opt,name=cache,proto3" json:"cache,omitempty"`
-	First        int32        `protobuf:"varint,15,opt,name=first,proto3" json:"first,omitempty"` // used to limit the number of result. Typically, the count is value of first
-	// field. Now, It's been used only for has query.
-	Offset int32 `protobuf:"varint,16,opt,name=offset,proto3" json:"offset,omitempty"` // offset helps in fetching lesser results for the has query when there is
+
+	// first是限制我们想要多少结果。下面两个都是由sg子图对象的Params里的count与offset生成。在NOTE:202506110处生成
+	First        int32        `protobuf:"varint,15,opt,name=first,proto3" json:"first,omitempty"` // used to limit the number of result. Typically, the count is value of first //用于限制结果的数量。通常，计数是第一个值
+	// field. Now, It's been used only for has query. 现在，它仅用于has查询。
+	Offset int32 `protobuf:"varint,16,opt,name=offset,proto3" json:"offset,omitempty"` // offset helps in fetching lesser results for the has query when there is // offset有助于在有以下情况时为has查询获取较少的结果
 }
 
 func (x *Query) Reset() {
@@ -3147,7 +3149,7 @@ type UidBlock struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Base uint64 `protobuf:"varint,1,opt,name=base,proto3" json:"base,omitempty"`
+	Base uint64 `protobuf:"varint,1,opt,name=base,proto3" json:"base,omitempty"` // 当前块内起始UID值，而deltas中存的便是基于这个的偏移量（注意是第二个是基于base，第三个基于第二个的偏移量）
 	// deltas contains the deltas encoded with Varints. We don't store deltas as a
 	// list of integers, because when the PB is brought to memory, Go would always
 	// use 8-bytes per integer. Instead, storing it as a byte slice is a lot
@@ -3289,7 +3291,7 @@ type PostingList struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Pack     *UidPack   `protobuf:"bytes,1,opt,name=pack,proto3" json:"pack,omitempty"` // Encoded list of uids in this posting list.此发布列表中的uid编码列表。
+	Pack     *UidPack   `protobuf:"bytes,1,opt,name=pack,proto3" json:"pack,omitempty"` // Encoded list of uids in this posting list.此发布列表中的uid编码列表（打包块，内含有多个block）。（非直接的明码存储各个UID值，需要解码器解析出来）
 	Postings []*Posting `protobuf:"bytes,2,rep,name=postings,proto3" json:"postings,omitempty"`
 	CommitTs uint64     `protobuf:"varint,3,opt,name=commit_ts,json=commitTs,proto3" json:"commit_ts,omitempty"` // More inclination towards smaller values.//更倾向于较小的值。在去磁盘读增量的时候会设置，由于读kv版本是从大一直读到小的，所以，这个值也是最小版本KV的commitedTs
 	Splits   []uint64   `protobuf:"varint,4,rep,packed,name=splits,proto3" json:"splits,omitempty"`

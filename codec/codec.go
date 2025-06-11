@@ -164,28 +164,30 @@ func NewDecoder(pack *pb.UidPack) *Decoder {
 	return decoder
 }
 
+// 每次解析的是一个block（不是一个pack）
 func (d *Decoder) UnpackBlock() []uint64 {
-	if len(d.uids) > 0 {
+	if len(d.uids) > 0 { // 清空
 		// We were previously preallocating the d.uids slice to block size. This caused slowdown
 		// because many blocks are small and only contain a few ints, causing wastage while still
 		// paying cost of allocation.
-		d.uids = d.uids[:0]
+		// 我们之前将d.uid切片预分配到块大小。这导致了速度减慢，因为许多块很小，只包含几个整数，造成了浪费，同时仍要支付分配成本。
+		d.uids = d.uids[:0]  
 	}
 
-	if d.blockIdx >= len(d.Pack.Blocks) {
+	if d.blockIdx >= len(d.Pack.Blocks) { // 当块下标大于总长度时，直接退出
 		return d.uids
 	}
-	block := d.Pack.Blocks[d.blockIdx]
+	block := d.Pack.Blocks[d.blockIdx] // 得到下标块
 
 	last := block.Base
 	d.uids = append(d.uids, last)
 
 	tmpUids := make([]uint32, 4)
 	var sum uint64
-	encData := block.Deltas
+	encData := block.Deltas // 得到待解析数据
 
 	for uint32(len(d.uids)) < block.NumUids {
-		if len(encData) < 17 {
+		if len(encData) < 17 { // 不到17的话，就扩充到17字节
 			// Decode4 decodes 4 uids from encData. It moves slice(encData) forward while
 			// decoding and expects it to be of length >= 4 at all the stages.
 			// The SSE code tries to read 16 bytes past the header(1 byte).
@@ -194,15 +196,19 @@ func (d *Decoder) UnpackBlock() []uint64 {
 			//
 			// We should NEVER write to encData, because it references block.Deltas, which is laid
 			// out on an allocator.
+			// Decode4从encData中解码4个uid。它在解码时向前移动切片（encData），并期望它在所有阶段的长度>=4。
+			// SSE代码试图读取超过标头（1字节）的16个字节。
+			// 因此，我们正在填充encData，将其长度增加到17个字节。
+			// 这是一种解决方法https://github.com/dgryski/go-groupvarint/issues/1
 			tmp := make([]byte, 17)
 			copy(tmp, encData)
 			encData = tmp
 		}
 
-		groupvarint.Decode4(tmpUids, encData)
-		encData = encData[groupvarint.BytesUsed[encData[0]]:]
+		groupvarint.Decode4(tmpUids, encData) // NOTE:核心操作，每次解码出来四个偏移量（groupvarint是高效批量解析连续 Varint 编码整数的工具）
+		encData = encData[groupvarint.BytesUsed[encData[0]]:] // 待解码块后移下标
 		for i := range 4 {
-			sum = last + uint64(tmpUids[i])
+			sum = last + uint64(tmpUids[i]) // 最终的目标值由base+解码到的偏移量得到，且每一个当前的偏移量的值都是相对于紧挨着上一个确切值的偏移量
 			d.uids = append(d.uids, sum)
 			last = sum
 		}
@@ -289,6 +295,12 @@ func (d *Decoder) SeekToBlock(uid uint64, whence seekPos) []uint64 {
 // SeekCurrent searches uid but only as offset, it won't be included with results.
 //
 // Returns a slice of all uids whence the position, or an empty slice if none found.
+
+// Seek将使用指定的起始位置在打包块中搜索uid。
+// whence的值必须是预定义值SeekStart或SeekCurrent之一。
+// SeekStart搜索uid并将其作为结果的一部分。 （本行以及下一行的uid均指的是参数里面的那个uid）
+// SeekCurrent搜索uid，但仅作为偏移量，它不会包含在结果中。
+// 返回位置所在的所有uid的切片，如果没有找到，则返回空切片。
 func (d *Decoder) Seek(uid uint64, whence seekPos) []uint64 {
 	if d.Pack == nil {
 		return []uint64{}
@@ -298,7 +310,7 @@ func (d *Decoder) Seek(uid uint64, whence seekPos) []uint64 {
 		return d.UnpackBlock()
 	}
 
-	pack := d.Pack
+	pack := d.Pack // 得到打包块（密文）
 	blocksFunc := func() searchFunc {
 		var f searchFunc
 		switch whence {
@@ -310,12 +322,13 @@ func (d *Decoder) Seek(uid uint64, whence seekPos) []uint64 {
 		return f
 	}
 
-	idx := sort.Search(len(pack.Blocks), blocksFunc())
+	idx := sort.Search(len(pack.Blocks), blocksFunc()) // 找到目标块下标（通过判断uid的偏移量）
 	// The first block.Base >= uid.
-	if idx == 0 {
-		return d.UnpackBlock()
+	if idx == 0 { // 如果第一个block都满足，那么直接解码即可
+		return d.UnpackBlock() // NOTE:核心操作，解析为明文uid列表 zzlTODO:看这里面怎么解析的
 	}
 	// The uid is the first entry in the block.
+	// 如果uid的值刚好等于当前下标块的起始UID的值
 	if idx < len(pack.Blocks) && pack.Blocks[idx].Base == uid {
 		d.blockIdx = idx
 		return d.UnpackBlock()
@@ -324,10 +337,11 @@ func (d *Decoder) Seek(uid uint64, whence seekPos) []uint64 {
 	// Either the idx = len(pack.Blocks) that means it wasn't found in any of the block's base. Or,
 	// we found the first block index whose base is greater than uid. In these cases, go to the
 	// previous block and search there.
-	d.blockIdx = idx - 1 // Move to the previous block. If blockIdx<0, unpack will deal with it.
-	d.UnpackBlock()      // And get all their uids.
+	// 要么是idx=len（pack.Blocks），这意味着在任何块的base中都找不到它。或者，我们找到了第一个基数大于uid的块索引。在这些情况下，转到上一个块并在那里搜索。
+	d.blockIdx = idx - 1 // Move to the previous block. If blockIdx<0, unpack will deal with it. 移动到上一个块。如果blockIdx<0，unpack将处理它。
+	d.UnpackBlock()      // And get all their uids. 并获取他们所有的UID。
 
-	uidsFunc := func() searchFunc {
+	uidsFunc := func() searchFunc { // 为了找上一个块中第一个满足条件的uid
 		var f searchFunc
 		switch whence {
 		case SeekStart:
@@ -339,6 +353,7 @@ func (d *Decoder) Seek(uid uint64, whence seekPos) []uint64 {
 	}
 
 	// uidx points to the first uid in the uid list, which is >= uid.
+	// uidx指向uid列表中的第一个>=参数uid的uid。
 	uidx := sort.Search(len(d.uids), uidsFunc())
 	if uidx < len(d.uids) { // Found an entry in uids, which >= uid.
 		d.uids = d.uids[uidx:]
@@ -346,6 +361,7 @@ func (d *Decoder) Seek(uid uint64, whence seekPos) []uint64 {
 	}
 	// Could not find any uid in the block, which is >= uid. The next block might still have valid
 	// entries > uid.
+	// 在块中找不到任何uid，即>=uid。下一个块可能仍有有效条目>uid。
 	return d.Next()
 }
 

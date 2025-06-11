@@ -849,7 +849,7 @@ func (qs *queryState) handleUidPostings(
 			}
 
 			// Get or create the posting list for an entity, attribute combination.
-			pl, err := qs.cache.Get(key) // NOTE:核心操作，根据key生成一个posting-list对象，其内已经有目标UID了（在(*(*(*(*pl).plist).Pack).Blocks[0]).Base中）
+			pl, err := qs.cache.Get(key) // NOTE:核心操作，根据key生成一个posting-list对象，其内已经有目标UID了（但是是密文，需要解码）（在(*(*(*(*pl).plist).Pack).Blocks[0]).Base中）
 			// 这个一般按照正常流程的话，在这条线的最深层次那里的l反序列化后就会一路直接变成这里的pl
 			if err != nil {
 				return err
@@ -860,7 +860,7 @@ func (qs *queryState) handleUidPostings(
 					q.Attr, []byte(srcFn.tokens[i]), uint64(pl.ApproxLen()))
 			}
 
-			// zzlTODO:UID查询的另一部分，下面这个switch是对结果筛选吗？
+			// 下面这个switch是根据当前查询的类型，来对已经查出来的数据进行不同的操作
 			switch {
 			case q.DoCount:
 				if i == 0 {
@@ -954,11 +954,10 @@ func (qs *queryState) handleUidPostings(
 				if q.FacetParam != nil {
 					out.FacetMatrix = append(out.FacetMatrix, &pb.FacetsList{FacetsList: fcsList})
 				}
-			default:
+			default:  // 通用的，就是从上面get到的pl中，将uid解析出来即可
 				if i == 0 {
 					span.Annotate(nil, "default no facets")
 				}
-				// zzlTODO:优先看这个！！看下面如何将一个非明码存储的uid块，转化为目标可见的uidLIst
 				uidList, err := pl.Uids(opts) // NOTE:核心操作，应该是从pl的List.plist.Pack.Blocks.Deltas中得到目标UID（pl中的uid在之前还不是明码存储，这是因为要更大化利用内存）
 				// opts是列表配置项，内有读时间戳，其内的大部分值由查询任务赋予
 				if err != nil {
