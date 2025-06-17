@@ -32,22 +32,41 @@ query ZZLQuery($myname : string ="zzlFunName"){
     }
 }
 
-增加
+
+
+
+
+
+
+
+//嵌套测试
 {
   "set":[
     {
-      "name": "zzlname",
-      "age": 40,
-      "follows": {
-        "name": "zzlname2",
-        "age": 28,
-        "follows":{
-          "name": "zzlname3",
-          "age": 31
+  			"qtname":"qiantaoname1",
+  			"qtage":11,
+  			"qtfollower":[{
+					"qtfollowerName":"qtfollowerName1",
+  				"qtfollowerage":111
+        },
+        {
+        "qtfollowerName":"qtfollowerName2",
+                  "qtfollowerage":222
         }
-      }
+      ]
     }
   ]
+}
+
+{
+    find_follower2(func: has(qtname)){
+        qtname
+        qtage
+    			 qtfollower{
+						  qtfollowerName
+        		qtfollowerage
+        }
+  }
 }
 
 // 方便观察层次
@@ -72,6 +91,26 @@ query ZZLQuery($myname : string ="zzlFunName"){
         }
     }
   ]
+}
+
+// 双嵌套查询
+{
+    find_follower1(func: has(qtname)){
+      qtname
+      qtage
+    	qtfollower{
+			  qtfollowerName
+     		qtfollowerage
+      }
+    }
+    find_student(func: has(hjshaixuan)){
+      hjname
+      hjage
+    	hjfollower{
+			  hjfolname
+      	hjfolage
+      }
+    }
 }
 
 删除

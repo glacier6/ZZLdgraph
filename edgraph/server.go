@@ -1387,7 +1387,7 @@ func (s *Server) doQuery(ctx context.Context, req *Request) (resp *api.Response,
 		}
 	}
 
-	qc := &queryContext{ // queryContext, 它是查询上下文, 用于传递处理查询、突变或 upsert 请求所需的所有变量
+	qc := &queryContext{ // queryContext, 它是查询上下文, 用于传递处理查询、突变或 upsert 请求所需的所有变量 NOTE:2025061700
 		req:      req.req,
 		latency:  l,
 		span:     span,
@@ -1396,7 +1396,7 @@ func (s *Server) doQuery(ctx context.Context, req *Request) (resp *api.Response,
 	}
 	// parseRequest 里又转而调用了 validateQuery 函数
 	// (parseRequest, validateQuery)都只是在查询上下文的分析和验证上下功夫
-	if rerr = parseRequest(ctx, qc); rerr != nil {
+	if rerr = parseRequest(ctx, qc); rerr != nil { // NOTE:核心操作，解析请求体，填充qc查询上下文对象
 		return
 	}
 
@@ -1486,7 +1486,7 @@ func processQuery(ctx context.Context, qc *queryContext) (*api.Response, error) 
 	if ctx.Err() != nil {
 		return resp, ctx.Err()
 	}
-	// 先构造 query.Request 结构，后面的就是在填充这个qr
+	// 先构造 query.Request 查询请求对象，后面的就是在填充这个qr NOTE:2025061702
 	qr := query.Request{
 		Latency:  qc.latency,
 		DqlQuery: &qc.dqlRes, //存的是解析sql语句后的结果
@@ -1642,6 +1642,8 @@ func processQuery(ctx context.Context, qc *queryContext) (*api.Response, error) 
 }
 
 // parseRequest parses the incoming request
+// parseRequest 解析到来的请求
+// 这个函数主要是填充查询查询上下文对象 queryContext
 func parseRequest(ctx context.Context, qc *queryContext) error {
 	start := time.Now()
 	defer func() {
@@ -1681,7 +1683,7 @@ func parseRequest(ctx context.Context, qc *queryContext) error {
 
 	// parsing the updated query
 	var err error
-	qc.dqlRes, err = dql.ParseWithNeedVars(dql.Request{
+	qc.dqlRes, err = dql.ParseWithNeedVars(dql.Request{ // NOTE:核心操作，得到解析出来的dql语句并保存到函数上下文对象的dqlRes中
 		Str:       upsertQuery,
 		Variables: qc.req.Vars,
 	}, needVars)

@@ -1079,7 +1079,7 @@ func (qs *queryState) helpProcessTask(ctx context.Context, q *pb.Query, gid uint
 	out := new(pb.Result)
 	attr := q.Attr
 
-	srcFn, err := parseSrcFn(ctx, q) // NOTE:核心操作，解析当前查询任务给出查询函数对象并且根据函数类别填充它
+	srcFn, err := parseSrcFn(ctx, q) // NOTE:核心操作，解析当前查询任务给出查询函数对象并且根据函数类别填充它 NOTE:2025061701
 	if err != nil {
 		return nil, err
 	}
@@ -1145,10 +1145,9 @@ func (qs *queryState) helpProcessTask(ctx context.Context, q *pb.Query, gid uint
 	}
 	// NOTE:202506100
 	// NOTE:核心操作，下面俩是最核心的操作，函数级别的某些（如has）是会先到下面多个if并列的各个函数中操作，得到一些初始的数据项，然后才会到下面两个最核心操作中运行（out在args内）
-	// zzlTODO:需要看整体的是怎么运作的？对于复杂一点的查询操作，在这里设置中断每次执行的不一样，是因为协程并行的问题？还是某个地方有缓存？
 	if needsValPostings { // 如果当前谓词是要获取值（即边的一端是值，进这里的前提是要已经有UID）
 		span.Annotate(nil, "handleValuePostings")
-		if err := qs.handleValuePostings(ctx, args); err != nil { //NOTE:核心操作，查询目标谓词所对应的值 // zzlTODO:待看，怎么读值
+		if err := qs.handleValuePostings(ctx, args); err != nil { //NOTE:核心操作，查询目标谓词所对应的值 // zzlTODO:优先看这个，怎么读值
 			return nil, err
 		}
 	} else { // 如果当前谓词要获取节点（即边的两端都是节点，或者anyofterms等精确查询函数要获取节点UID）

@@ -348,6 +348,7 @@ func (sg *SubGraph) recurse(set func(sg *SubGraph)) {
 }
 
 // IsGroupBy returns whether this subgraph is part of a groupBy query.
+// IsGroupBy返回此子图是否是groupBy查询的一部分。
 func (sg *SubGraph) IsGroupBy() bool {
 	return sg.Params.IsGroupBy
 }
@@ -2114,7 +2115,8 @@ func expandSubgraph(ctx context.Context, sg *SubGraph) ([]*SubGraph, error) {
 // ProcessGraph processes the SubGraph instance accumulating result for the query
 // from different instances. Note: taskQuery is nil for root node.
 // ProcessGraph处理来自不同实例的查询结果的SubGraph实例。注意：根节点的taskQuery为nil。
-// 且需要注意的是，这个函数会根据DQL的本层查询内有a个谓词，函数体上有b个谓词，来运行a+b次（注意未排除重复的谓词以及有缓存不会进入这里的次数），当前找的谓词存储在sg.Attr中
+// NOTE:且需要注意的是，这个函数会根据DQL的本层查询内有a个谓词，函数体上有b个谓词，来运行a+b次（注意未排除重复的谓词以及有缓存不会进入这里的次数），当前找的谓词存储在sg.Attr中
+// zzlTODO:需要看整体的是怎么运作的？对于复杂一点的查询操作，在这个函数里设置中断每次执行的不一样，是因为协程并行的问题？还是某个地方有缓存？
 func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 	var suffix string
 	if len(sg.Params.Alias) > 0 { // 拼接别名
@@ -2227,13 +2229,13 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 			}
 		// 当非比较时
 		default:
-			taskQuery, err := createTaskQuery(ctx, sg) // NOTE:核心操作，创建一个查询任务 NOTE:202506050
+			taskQuery, err := createTaskQuery(ctx, sg) // NOTE:核心操作，创建一个查询任务 NOTE:2025060500
 			if err != nil { // 如果创建查询任务失败了
 				rch <- err
 				return
 			}
 			// 每执行一次ProcessTaskOverNetwork（通常是按照谓词来一次一次执行），就会得到一些最终数据
-			result, err := worker.ProcessTaskOverNetwork(ctx, taskQuery) // NOTE:核心操作， Alpha 被分割到不同的组里（组内每个alpha数据一样），所以 ProcessTaskOverNetwork 先获取当前查询的谓词所属的组ID, 然后判断是不是在当前实例上, 如果是则执行立即processTask, 否则发起 RPC 远程调用。
+			result, err := worker.ProcessTaskOverNetwork(ctx, taskQuery) // NOTE:核心操作，得到当前的结果数据， Alpha 被分割到不同的组里（组内每个alpha数据一样），所以 ProcessTaskOverNetwork 先获取当前查询的谓词所属的组ID, 然后判断是不是在当前实例上, 如果是则执行立即processTask, 否则发起 RPC 远程调用。
 			// var xxxxx=sg.Attr
 			// fmt.Print(xxxxx)
 			switch {
@@ -2288,6 +2290,7 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 	}
 
 	// Run filters if any.
+	// 如果有filter
 	if len(sg.Filters) > 0 {
 		// Run all filters in parallel.
 		filterChan := make(chan error, len(sg.Filters))
@@ -2309,7 +2312,7 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 			}
 			// Passing the pointer is okay since the filter only reads.
 			filter.Params.ParentVars = sg.Params.ParentVars // Pass to the child.
-			go ProcessGraph(ctx, filter, sg, filterChan)
+			go ProcessGraph(ctx, filter, sg, filterChan)  // 针对filter的额外查询
 		}
 
 		var filterErr error
@@ -2352,9 +2355,11 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 		}
 	}
 
+	// 下面是处理order排序相关的代码
 	if len(sg.Params.Order) == 0 && len(sg.Params.FacetsOrder) == 0 {
 		// for `has` function when there is no filtering and ordering, we fetch
 		// correct paginated results so no need to apply pagination here.
+		// 对于没有过滤和排序的has函数，我们获取正确的分页结果，因此不需要在这里应用分页。
 		if !(len(sg.Filters) == 0 && sg.SrcFunc != nil && sg.SrcFunc.Name == "has") {
 			// There is no ordering. Just apply pagination and return.
 			if err = sg.applyPagination(ctx); err != nil {
@@ -2364,8 +2369,10 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 		}
 	} else {
 		// If we are asked for count, we don't need to change the order of results.
+		// 如果需要计数count，我们不需要改变结果的顺序。
 		if !sg.Params.DoCount {
 			// We need to sort first before pagination.
+			// 在分页之前，我们需要先排序。
 			if err = sg.applyOrderAndPagination(ctx); err != nil {
 				rch <- err
 				return
@@ -2379,6 +2386,8 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 	// user wants to skip 100 entries and return 10 entries. In this case, you
 	// should return a count of 0, not 10.
 	// take care of the order
+	// 这里我们考虑用过滤处理计数。我们在分页后这样做，因为否则，我们需要考虑分页进行计数。
+	// 例如，PL可能只有50个条目，但用户希望跳过100个条目并返回10个条目。在这种情况下，您应该返回计数0，而不是10。处理好订单
 	if sg.Params.DoCount {
 		x.AssertTrue(len(sg.Filters) > 0)
 		sg.counts = make([]uint32, len(sg.uidMatrix))
@@ -2399,6 +2408,7 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 
 	if sg.IsGroupBy() {
 		// Add the attrs required by groupby nodes
+		// 添加groupby节点所需的attrs
 		for _, it := range sg.Params.GroupbyAttrs {
 			// TODO - Throw error if Attr is of list type.
 			sg.Children = append(sg.Children, &SubGraph{
@@ -2423,9 +2433,10 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 		}
 	}
 
+	// 遍历当前级别的各个子图，在获取当前层数据那里会进行阻塞操作的，所以到这里，就已经有当前级别的数据了
 	childChan := make(chan error, len(sg.Children))
 	for i := range sg.Children {
-		child := sg.Children[i]
+		child := sg.Children[i] // 一般来说就是对应一个谓词
 		child.Params.ParentVars = make(map[string]varValue)
 		for k, v := range sg.Params.ParentVars {
 			child.Params.ParentVars[k] = v
@@ -2436,11 +2447,12 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 			// We dont have to execute these nodes.
 			continue
 		}
-		go ProcessGraph(ctx, child, sg, childChan)
+		go ProcessGraph(ctx, child, sg, childChan) // NOTE:2025061703 在这里轮询下层子图
 	}
 
 	var childErr error
 	// Now get all the results back.
+	// 现在把所有结果都拿回来。
 	for _, child := range sg.Children {
 		if child.IsInternal() {
 			continue
@@ -2848,8 +2860,7 @@ type Request struct {
 // 它可以处理作为查询一部分的多个查询块。。
 // 本函数主要关注 大循环 与 在其内的小循环
 // NOTE:下面的顶层指的都是第一轮循环中的，实际整个工作流程是一直循环从上至下填充完善图的过程
-
-// zzlTODO:优先看这个，目前已经把简单的anyofterms的第一轮流程全看完了，那么后续轮是怎么启动的呢？
+// NOTE:注意本函数只是对应顶层子图的查询，轮询也只会轮询顶层子图，顶层子图下包括的各类小查询，不在这里轮询查，在ProcessGraph这个函数级别里面会轮询查多次 NOTE:2025061703
 func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 	span := otrace.FromContext(ctx) // FromContext返回存储在上下文中的Span，或者如果没有记录事件，则返回不记录事件的Span。
 	stop := x.SpanTimer(span, "query.ProcessQuery") //SpanTimer返回一个函数，用于记录给定跨度的持续时间。
@@ -2858,11 +2869,11 @@ func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 	// Vars stores the processed variables. //Vars存储已处理的变量。
 	req.Vars = make(map[string]varValue)
 	loopStart := time.Now() // 记录开始时间
-	queries := req.DqlQuery.Query
+	queries := req.DqlQuery.Query  // 得到每个顶层查询块对应的对象列表
 	// first loop converts queries to SubGraph representation and populates ReadTs And Cache.
 	// 第一个循环将查询的语句转换为顶层subGraph查询视图，并且将其放到req中（即完成了 query.Request.GqlQuery.Query 到 query.SubGraph 的转换），并填充ReadTs和Cache。
 	for i := range queries {
-		gq := queries[i]
+		gq := queries[i] // 得到单个顶层查询块
 
 		if gq == nil || (len(gq.UID) == 0 && gq.Func == nil && len(gq.NeedsVar) == 0 &&
 			gq.Alias != "shortest" && !gq.IsEmpty) {
@@ -2923,7 +2934,7 @@ func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 		// to be executed.
 		// 如果查询中有N个块（即N个顶层SubGraph），则最多需要N次迭代才能执行所有块。
 		// 注意每轮执行上面的大循环时，都会在每轮中更新所有的顶层子图的执行状态（即下面这个小循环）
-		for idx := range req.Subgraphs {
+		for idx := range req.Subgraphs { // 遍历尝试执行所有顶层子图
 			if hasExecuted[idx] { // 如果已经开始执行了，那就直接跳出
 				continue
 			}
@@ -2977,7 +2988,7 @@ func (req *Request) ProcessQuery(ctx context.Context) (err error) {
 					errChan <- recurse(ctx, sg) // NOTE:核心操作，递归查询
 				}()
 			default:
-				go ProcessGraph(ctx, sg, nil, errChan) // NOTE:核心操作，处理满足前置查询条件的各个顶级subGraph，主要是提供一个当前顶级子图查询的开始起点，后续的是通过内部迭代不断完善最终得出结果
+				go ProcessGraph(ctx, sg, nil, errChan) // NOTE:核心操作，处理满足前置查询条件的各个顶级subGraph，主要是提供一个当前顶级子图查询的开始起点，后续的是通过内部迭代低层子图不断完善最终得出结果 NOTE:2025061703 
 			}
 		}
 

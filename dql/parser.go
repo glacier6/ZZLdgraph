@@ -629,9 +629,12 @@ func Parse(r Request) (Result, error) {
 }
 
 // ParseWithNeedVars performs parsing of a query with given needVars.
+// ParseWithNeedVars使用给定的needVars执行查询解析。
 //
 // The needVars parameter is passed in the case of upsert block.
 // For example, when parsing the query block inside -
+// needVars参数在发生追加销售块的情况下传递。
+// 例如，在解析内部的查询块时-
 //
 //	upsert {
 //	  query {
@@ -650,28 +653,32 @@ func Parse(r Request) (Result, error) {
 //
 // The variable name v needs to be passed through the needVars parameter. Otherwise, an error
 // is reported complaining that the variable v is defined but not used in the query block.
+// 变量名v需要通过needVars参数传递。否则，将出现错误
+// 报告抱怨变量v已定义但未在查询块中使用。
+
+// 该函数主要作用是按照查询块有几个生成追加几个res.Query
 func ParseWithNeedVars(r Request, needVars []string) (res Result, rerr error) {
-	query := r.Str
+	query := r.Str  // 这个就是你传进来的那个最原始的查询语句
 	vmap := convertToVarMap(r.Variables)
 
 	var lexer lex.Lexer
-	lexer.Reset(query)
+	lexer.Reset(query)  // 将原始查询语句设置到迭代器生成对象上
 	lexer.Run(lexTopLevel)
 	if err := lexer.ValidateResult(); err != nil {
 		return res, err
 	}
 
 	var qu *GraphQuery
-	it := lexer.NewIterator()
+	it := lexer.NewIterator() // 生成迭代器
 	fmap := make(fragmentMap)
 	for it.Next() {
 		item := it.Item()
 		switch item.Typ {
 		case itemOpType:
 			switch item.Val {
-			case "mutation":
+			case "mutation": // 是突变
 				return res, item.Errorf("Mutation block no longer allowed.")
-			case "schema":
+			case "schema": // 是查询模式的
 				if res.Schema != nil {
 					return res, item.Errorf("Only one schema block allowed ")
 				}
@@ -688,7 +695,7 @@ func ParseWithNeedVars(r Request, needVars []string) (res Result, rerr error) {
 					return res, rerr
 				}
 				fmap[fnode.Name] = fnode
-			case "query":
+			case "query": // 是普通查询
 				if res.Schema != nil {
 					return res, item.Errorf("Schema block is not allowed with query block")
 				}

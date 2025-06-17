@@ -160,6 +160,7 @@ type RuneWidth struct {
 }
 
 // Lexer converts a raw input into tokens.
+//Lexer将原始输入转换为tokens。
 type Lexer struct {
 	// NOTE: Using a text scanner wouldn't work because it's designed for parsing
 	// Golang. It won't keep track of Start Position, or allow us to retrieve

@@ -757,7 +757,7 @@ func GetNew(key []byte, pstore *badger.DB, readTs uint64) (*List, error) {
 // Zero节点的Timestamps函数接口返回 -> s.needTs(s是ServerState对象，保存Dgraph数据库的状态，needTs是长度为100的通道，具体处理在NOTE:2025060502) -> 
 // posting.Oracle().MaxAssigned() 或者 worker.State.GetTimestamp（去zero请求时间戳）  -> 
 // qc.req.StartTs（qc是queryContext对象，保存处理请求的所需的变量） -> req.ReadTs（req是query.Request对象） -> sg.ReadTs（sg是查询子图，取自req.Subgraphs[idx]） -> 
-// q.ReadTs（q是查询任务对象pb.Query，在NOTE:202506050创建） -> qs.cache.startTs（qs是查询状态缓存的queryState，在NOTE:202506051创建） -> readTs
+// q.ReadTs（q是查询任务对象pb.Query，在NOTE:2025060500创建） -> qs.cache.startTs（qs是查询状态缓存的queryState，在NOTE:202506051创建） -> readTs
 // NOTE:重点：所以实际上readTs就是由向Zero节点请求的StartTs简单转换的，二者是一个东西
 // 除了上面的对象，还有一个查询函数对象functionContext很重要，这个主要是保存诸如has等函数的一些信息
 func getNew(key []byte, pstore *badger.DB, readTs uint64) (*List, error) { 
