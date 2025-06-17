@@ -190,25 +190,31 @@ func convertValue(attr, data string) (types.Val, error) {
 }
 
 // Returns nil byte on error
+// 出错时返回nil字节
 func convertToType(v types.Val, typ types.TypeID) (*pb.TaskValue, error) {
-	result := &pb.TaskValue{ValType: typ.Enum(), Val: x.Nilbyte}
-	if v.Tid == typ {
+	result := &pb.TaskValue{ValType: typ.Enum(), Val: x.Nilbyte} // 创建一个值对象，并且赋给其当前值类型以及空的值
+
+	// 如果当前值类型与谓词类型相等，直接赋值返回即可
+	if v.Tid == typ { 
 		result.Val = v.Value.([]byte)
 		return result, nil
 	}
 
+	// 下面就是不相等的时候，需要对value做转换
 	// convert data from binary to appropriate format
-	val, err := types.Convert(v, typ)
-	if err != nil {
+	// 将数据从二进制转换为适当的格式
+	val, err := types.Convert(v, typ) // NOTE:核心操作，Convert将Value转换为给定的标量类型。
+	if err != nil { // 转换成功直接返回
 		return result, err
 	}
+
 	// Marshal
-	data := types.ValueForType(types.BinaryID)
+	data := types.ValueForType(types.BinaryID) // 本行ValueForType返回字节类型的零值
 	err = types.Marshal(val, &data)
 	if err != nil {
 		return result, errors.Errorf("Failed convertToType during Marshal")
 	}
-	result.Val = data.Value.([]byte)
+	result.Val = data.Value.([]byte) // 设置值对象的值（本行是将data.Value转换为字节切片类型）
 	return result, nil
 }
 
@@ -339,28 +345,33 @@ func (srcFn *functionContext) needsValuePostings(typ types.TypeID) (bool, error)
 }
 
 // Handles fetching of value posting lists and filtering of uids based on that.
+// 处理value posting lists的获取和基于此的uid过滤。
+// NOTE:handleValuePostings函数与handleUidPostings函数的处理逻辑十分相似
 func (qs *queryState) handleValuePostings(ctx context.Context, args funcArgs) error {
 	srcFn := args.srcFn
-	q := args.q
+	q := args.q // 获得查询的查询任务对象
 
-	facetsTree, err := preprocessFilter(q.FacetsFilter)
+	facetsTree, err := preprocessFilter(q.FacetsFilter) // 得到facet树
 	if err != nil {
 		return err
 	}
 
+	// 下面这一块是记录一些状态与操作时间间隔
 	span := otrace.FromContext(ctx)
-	stop := x.SpanTimer(span, "handleValuePostings")
+	stop := x.SpanTimer(span, "handleValuePostings") // SpanTimer返回一个函数，用于记录给定跨度的持续时间。
 	defer stop()
 	if span != nil {
 		span.Annotatef(nil, "Number of uids: %d. args.srcFn: %+v", srcFn.n, args.srcFn)
 	}
 
+	// 进一步做一下安全判断，如果不是case内的函数类别，那么就报错退出
 	switch srcFn.fnType {
 	case notAFunction, aggregatorFn, passwordFn, compareAttrFn, similarToFn:
 	default:
 		return errors.Errorf("Unhandled function in handleValuePostings: %s", srcFn.fname)
 	}
 
+	//下面这些都是根据查询函数等属性来进行一些相应的特殊操作
 	if srcFn.fnType == similarToFn {
 		numNeighbors, err := strconv.ParseInt(q.SrcFunc.Args[0], 10, 32)
 		if err != nil {
@@ -404,15 +415,18 @@ func (qs *queryState) handleValuePostings(ctx context.Context, args funcArgs) er
 		return errors.Errorf("checkpwd fn can only be used on attr: [%s] with schema type "+
 			"password. Got type: %s", x.ParseAttr(q.Attr), srcFn.atype.Name())
 	}
-	if srcFn.n == 0 {
+
+	// 下面这两个IF是有关查询数量级的验证
+	if srcFn.n == 0 { // 如果当前查询数量级是0,那么直接返回空
 		return nil
 	}
-
 	// srcFn.n should be equal to len(q.UidList.Uids) for below implementation(DivideAndRule and
 	// calculate) to work correctly. But we have seen some panics while forming DataKey in
 	// calculate(). panic is of the form "index out of range [4] with length 1". Hence return error
 	// from here when srcFn.n != len(q.UidList.Uids).
-	if srcFn.n != len(q.UidList.Uids) {
+	// srcFn.n应等于len（q.UidList.Uids），以便以下实现（DivideAndRule和compute）正常工作。
+	// 但是我们在calculate（）中形成DataKey时看到了一些恐慌。恐慌的形式是“索引超出范围[4]，长度为1”。因此，当srcFn.n！=len（q.UidList.Uids）
+	if srcFn.n != len(q.UidList.Uids) { // 在查询值的时候，如果数量级不等于UID个数，直接抛出错误
 		return errors.Errorf("srcFn.n: %d is not equal to len(q.UidList.Uids): %d, srcFn: %+v in "+
 			"handleValuePostings", srcFn.n, len(q.UidList.GetUids()), srcFn)
 	}
@@ -420,45 +434,54 @@ func (qs *queryState) handleValuePostings(ctx context.Context, args funcArgs) er
 	// This function has small boilerplate as handleUidPostings, around how the code gets
 	// concurrently executed. I didn't see much value in trying to separate it out, because the core
 	// logic constitutes most of the code volume here.
+	// 此函数有一个小样板handleUidPostings，围绕代码如何并发执行。我认为试图将其分开没有多大价值，因为核心逻辑构成了这里的大部分代码量。
+	// 下面的与UID的那里一样，也是根据查询的数量级来得到需要启动的go协程数量
 	numGo, width := x.DivideAndRule(srcFn.n)
 	x.AssertTrue(width > 0)
 	span.Annotatef(nil, "Width: %d. NumGo: %d", width, numGo)
 
-	outputs := make([]*pb.Result, numGo)
-	listType := schema.State().IsList(q.Attr)
+	outputs := make([]*pb.Result, numGo) // 根据上面的得到的协程数量，创建汇总输出切片outputs
+	listType := schema.State().IsList(q.Attr) // IsList返回谓词是否为列表类型。
 
 	// These are certain special cases where we can get away with reading only the latest value
 	// Lang doesn't work because we would be storing various different languages at various
 	// time. So when we go to read the latest value, we might get a different language.
 	// Similarly with DoCount and ExpandAll and Facets. List types are also not supported
 	// because list is stored by time, and we combine all the list items at various timestamps.
+	// 在某些特殊情况下，我们会只读取Lang中不起作用的最新值（指非目标语言），因为我们会在不同的时间存储各种不同的语言。
+	// 因此，当我们去读取最新值时，我们可能会得到一种不同的语言。DoCount、ExpandAll和Facets类似。
+	// 列表类型也不受支持，因为列表是按时间存储的，我们在不同的时间戳组合所有列表项。
 	hasLang := schema.State().HasLang(q.Attr)
-	getMultiplePosting := q.DoCount || q.ExpandAll || listType || hasLang || q.FacetParam != nil
+	getMultiplePosting := q.DoCount || q.ExpandAll || listType || hasLang || q.FacetParam != nil // 是否获取多版本的目标值
 
+	// 最核心处理
 	calculate := func(start, end int) error {
 		x.AssertTrue(start%width == 0)
-		out := &pb.Result{}
-		outputs[start/width] = out
+		out := &pb.Result{} // 存本次calculate函数执行的结果
+		outputs[start/width] = out // 存储空间关联起来，以做到out改时，汇总输出outputs也改
 
 		for i := start; i < end; i++ {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
+			select { // 非阻塞地检查上下文状态，在执行操作前先确认是否应该继续执行
+			case <-ctx.Done(): // 监听上下文取消信号
+				return ctx.Err() // 如果有取消信号，就返回取消的信息
 			default:
 			}
-			key := x.DataKey(q.Attr, q.UidList.Uids[i])
+			key := x.DataKey(q.Attr, q.UidList.Uids[i]) // 得到查询KEY，由状态位置 + 谓词 + UID拼接而成
 
 			// Get or create the posting list for an entity, attribute combination.
+			// 获取或创建实体、属性组合的posting list。
 
-			var vals []types.Val
+			var vals []types.Val // 存结果用的结构体
 			fcs := &pb.FacetsList{FacetsList: make([]*pb.Facets, 0)} // TODO Figure out how it is stored
 
-			if !getMultiplePosting {
-				pl, err := qs.cache.GetSinglePosting(key)
+			// 下面这个if会按照查询类型，获取到目标数据
+			if !getMultiplePosting { 
+				// 如果不用获取多版本的目标值（虽然是单版本，但一个KV对貌似也可以解析出来多个Value）
+				pl, err := qs.cache.GetSinglePosting(key) // NOTE:核心操作，获取单一最新版本的value,存储在pl.Postings下面
 				if err != nil {
 					return err
 				}
-				if pl == nil || len(pl.Postings) == 0 {
+				if pl == nil || len(pl.Postings) == 0 { // 如果没有查询出来结果，就加入一个空的Postiong List结构体来占位
 					out.UidMatrix = append(out.UidMatrix, &pb.List{})
 					out.FacetMatrix = append(out.FacetMatrix, &pb.FacetsList{})
 					out.ValueMatrix = append(out.ValueMatrix,
@@ -466,19 +489,21 @@ func (qs *queryState) handleValuePostings(ctx context.Context, args funcArgs) er
 					continue
 				}
 				vals = make([]types.Val, len(pl.Postings))
-				for i, p := range pl.Postings {
+				for i, p := range pl.Postings { //做一个对象的转换
 					vals[i] = types.Val{
-						Tid:   types.TypeID(p.ValType),
-						Value: p.Value,
+						Tid:   types.TypeID(p.ValType), // 赋当前Value的类型
+						Value: p.Value, // 赋Value
 					}
 				}
-			} else {
-				pl, err := qs.cache.Get(key)
+			} else { 
+				// 如果需要获取多版本的目标值
+				pl, err := qs.cache.Get(key) //NOTE:核心操作，这个函数调用的与查询UID的一样
 				if err != nil {
 					return err
 				}
 
 				// If count is being requested, there is no need to populate value and facets matrix.
+				// 如果请求是count，则不需要填充value和facet矩阵，在本if结束时，就可以跳出来当前循环了。
 				if q.DoCount {
 					count, err := countForValuePostings(args, pl, facetsTree, listType)
 					if err != nil && err != posting.ErrNoValue {
@@ -486,18 +511,21 @@ func (qs *queryState) handleValuePostings(ctx context.Context, args funcArgs) er
 					}
 					out.Counts = append(out.Counts, uint32(count))
 					// Add an empty UID list to make later processing consistent.
+					// 添加一个空UID列表，使以后的处理保持一致。
 					out.UidMatrix = append(out.UidMatrix, &pb.List{})
 					continue
 				}
 
-				vals, fcs, err = retrieveValuesAndFacets(args, pl, facetsTree, listType)
+				vals, fcs, err = retrieveValuesAndFacets(args, pl, facetsTree, listType) //NOTE:核心操作，检索出来需要的值 zzlTODO:2222,看一下，做的什么，貌似主要是根据查询语句的facet来进行筛选
 
 				switch {
-				case err == posting.ErrNoValue || (err == nil && len(vals) == 0):
+				case err == posting.ErrNoValue || (err == nil && len(vals) == 0): // 如果无目标值或者报错
 					// This branch is taken when the value does not exist in the pl or
 					// the number of values retrieved is zero (there could still be facets).
 					// We add empty lists to the UidMatrix, FaceMatrix, ValueMatrix and
 					// LangMatrix so that all these data structure have predictable layouts.
+					// 当pl中不存在该值或检索到的值数量为零时（仍可能存在方面），将采用此分支。
+					// 我们将空列表添加到UidMatrix、FaceMatrix、ValueMatrix和LangMatrix中，以便所有这些数据结构都具有可预测的布局。
 					out.UidMatrix = append(out.UidMatrix, &pb.List{})
 					out.FacetMatrix = append(out.FacetMatrix, &pb.FacetsList{})
 					out.ValueMatrix = append(out.ValueMatrix,
@@ -511,6 +539,7 @@ func (qs *queryState) handleValuePostings(ctx context.Context, args funcArgs) er
 					return err
 				}
 
+				// 有关多语言处理的
 				if q.ExpandAll {
 					langTags, err := pl.GetLangTags(args.q.ReadTs)
 					if err != nil {
@@ -522,28 +551,32 @@ func (qs *queryState) handleValuePostings(ctx context.Context, args funcArgs) er
 
 			uidList := new(pb.List)
 			var vl pb.ValueList
+			// 遍历结果集
 			for _, val := range vals {
-				newValue, err := convertToType(val, srcFn.atype)
+				newValue, err := convertToType(val, srcFn.atype) //NOTE:重要操作，根据查询函数的谓词的类型，如果查询出来的Value类型不同的话，需要转换一下值类型（应该是前面获取vals时，他并没有对值类型进行一些判别以及转换）
 				if err != nil {
 					return err
 				}
 
 				// This means we fetched the value directly instead of fetching index key and
 				// intersecting. Lets compare the value and add filter the uid.
+				// 这意味着我们直接获取值，而不是获取索引键并相交。让我们比较该值并添加过滤后的uid。
 				if srcFn.fnType == compareAttrFn {
+					// 如果函数类型是比较的
 					// Lets convert the val to its type.
+					// 让我们先将val转换为它的类型。
 					if val, err = types.Convert(val, srcFn.atype); err != nil {
 						return err
 					}
-					switch srcFn.fname {
-					case "eq":
-						for _, eqToken := range srcFn.eqTokens {
-							if types.CompareVals(srcFn.fname, val, eqToken) {
+					switch srcFn.fname { // 根据比较函数类型的名字，来判断应该做何种操作
+					case "eq": // 相等
+						for _, eqToken := range srcFn.eqTokens { // 依次取出来比较的原值
+							if types.CompareVals(srcFn.fname, val, eqToken) { // 与刚刚得到的目标值来进行对比
 								uidList.Uids = append(uidList.Uids, q.UidList.Uids[i])
 								break
 							}
 						}
-					case "between":
+					case "between": // 之间
 						if types.CompareBetween(val, srcFn.eqTokens[0], srcFn.eqTokens[1]) {
 							uidList.Uids = append(uidList.Uids, q.UidList.Uids[i])
 						}
@@ -554,17 +587,20 @@ func (qs *queryState) handleValuePostings(ctx context.Context, args funcArgs) er
 					}
 
 				} else {
+					// 非比较的，直接将转换后的value添加上去就可以
 					vl.Values = append(vl.Values, newValue)
 				}
 			}
-			out.ValueMatrix = append(out.ValueMatrix, &vl)
+			out.ValueMatrix = append(out.ValueMatrix, &vl) // 将得到的value添加到结果
 
-			// Add facets to result.
+			// Add facets to result.添加facet到结果
 			out.FacetMatrix = append(out.FacetMatrix, fcs)
 
+			// 下面这个switch，是根据一些特殊的查询函数做的特殊操作
 			switch {
 			case srcFn.fnType == aggregatorFn:
 				// Add an empty UID list to make later processing consistent
+				// 添加一个空UID列表，使以后的处理保持一致
 				out.UidMatrix = append(out.UidMatrix, &pb.List{})
 			case srcFn.fnType == passwordFn:
 				lastPos := len(out.ValueMatrix) - 1
@@ -583,30 +619,33 @@ func (qs *queryState) handleValuePostings(ctx context.Context, args funcArgs) er
 					out.ValueMatrix[lastPos].Values[0] = ctask.TrueVal
 				}
 				// Add an empty UID list to make later processing consistent
+				// 添加一个空UID列表，使以后的处理保持一致
 				out.UidMatrix = append(out.UidMatrix, &pb.List{})
 			default:
+				// 如比较函数，可能UidMatrix是有值的
 				out.UidMatrix = append(out.UidMatrix, uidList)
 			}
 		}
 		return nil
 	} // End of calculate function.
 
-	var g errgroup.Group
-	for i := range numGo {
+	var g errgroup.Group // group是处理属于同一总体任务的子任务的go routines的集合。
+	for i := range numGo { // 这个for循环是为了开启go协程开始计算任务
 		start := i * width
 		end := start + width
 		if end > srcFn.n {
 			end = srcFn.n
 		}
 		g.Go(func() error {
-			return calculate(start, end)
+			return calculate(start, end) // 分配查询计算
 		})
 	}
-	if err := g.Wait(); err != nil {
+	if err := g.Wait(); err != nil { // 阻塞等待所有任务完成
 		return err
 	}
 
 	// All goroutines are done. Now attach their results.
+	// 所有的协程都结束了。现在集成他们的结果,注意下面这个out是直接取得args的地址，所以会同步改。
 	out := args.out
 	for _, chunk := range outputs {
 		out.UidMatrix = append(out.UidMatrix, chunk.UidMatrix...)
@@ -813,7 +852,7 @@ func (qs *queryState) handleUidPostings(
 	needFiltering := needsStringFiltering(srcFn, q.Langs, q.Attr)
 	isList := schema.State().IsList(q.Attr)
 
-	//根据上面的得到的协程数量，创建阻塞切片errCh与汇总输出切片outputs
+	// 根据上面的得到的协程数量，创建阻塞切片errCh与汇总输出切片outputs
 	errCh := make(chan error, numGo)
 	outputs := make([]*pb.Result, numGo)
 
@@ -1053,7 +1092,7 @@ func processTask(ctx context.Context, q *pb.Query, gid uint32) (*pb.Result, erro
 
 	var qs queryState // 查询的状态的暂时保存，即缓存，其本质是一个LocalCache对象 NOTE:202506051
 	if q.Cache == UseTxnCache {
-		qs.cache = posting.Oracle().CacheAt(q.ReadTs) // oracle是一个全局的管理事物的对象，分配一个缓存
+		qs.cache = posting.Oracle().CacheAt(q.ReadTs) // oracle是一个全局的管理事物的对象，分配一个缓存查看对象
 	}
 	if qs.cache == nil {
 		qs.cache = posting.NoCache(q.ReadTs) // 创建一个本地缓存，但是这个缓存只用来存储当前查询任务的ReadTs（startTs）
@@ -1138,7 +1177,7 @@ func (qs *queryState) helpProcessTask(ctx context.Context, q *pb.Query, gid uint
 	}
 
 	args := funcArgs{q, gid, srcFn, out}
-	// needsValuePostings根据谓词的类别来判断获取值的posting lists还是uid的posting lists。（即如果是获取节点的，就为是要获取uid的，此时便为false，否则就是获取谓词对应的宾语的值的，为true）
+	// needsValuePostings根据查询函数的类别来判断获取值的posting lists还是uid的posting lists。（即如果是获取节点的，就为是要获取uid的，此时便为false，否则就是获取谓词对应的宾语的值的，为true）
 	needsValPostings, err := srcFn.needsValuePostings(typ) 
 	if err != nil {
 		return nil, err
@@ -1147,7 +1186,7 @@ func (qs *queryState) helpProcessTask(ctx context.Context, q *pb.Query, gid uint
 	// NOTE:核心操作，下面俩是最核心的操作，函数级别的某些（如has）是会先到下面多个if并列的各个函数中操作，得到一些初始的数据项，然后才会到下面两个最核心操作中运行（out在args内）
 	if needsValPostings { // 如果当前谓词是要获取值（即边的一端是值，进这里的前提是要已经有UID）
 		span.Annotate(nil, "handleValuePostings")
-		if err := qs.handleValuePostings(ctx, args); err != nil { //NOTE:核心操作，查询目标谓词所对应的值 // zzlTODO:优先看这个，怎么读值
+		if err := qs.handleValuePostings(ctx, args); err != nil { //NOTE:核心操作，查询目标谓词所对应的值，处理逻辑与handleUidPostings类似
 			return nil, err
 		}
 	} else { // 如果当前谓词要获取节点（即边的两端都是节点，或者anyofterms等精确查询函数要获取节点UID）
@@ -1800,7 +1839,7 @@ type functionContext struct {
 	// really need all of ineqValue, eqTokens, tokens
 	eqTokens       []types.Val
 	ineqValueToken []string
-	n              int // 该值有关查询的数量级问题，可以为len(fc.tokens)（即函数体参数个数），或者len(q.UidList.Uids)（即上层查询传递下来的有多少个uid）
+	n              int // 该值有关查询的数量级问题，查询UID时可以为len(fc.tokens)（即函数体参数个数），或者有UID来查询Value时为len(q.UidList.Uids)（即上层查询传递下来的有多少个uid）
 	threshold      []int64
 	uidsPresent    []uint64
 	fname          string
@@ -2358,6 +2397,7 @@ type facetsTree struct {
 
 // commonTypeIDs is list of type ids which are more common. In preprocessFilter() we keep converted
 // values for these typeIDs at every function node.
+// commonTypeIDs 是更常见的类型ID列表。在 preprocessFilter() 函数中，我们在每个函数节点都保留这些类型ID的转换值。
 var commonTypeIDs = [...]types.TypeID{types.StringID, types.IntID, types.FloatID,
 	types.DateTimeID, types.BoolID, types.DefaultID}
 

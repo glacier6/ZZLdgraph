@@ -695,7 +695,7 @@ func (ml *MemoryLayer) readFromDisk(key []byte, pstore *badger.DB, readTs uint64
 	iterOpts := badger.DefaultIteratorOptions
 	iterOpts.AllVersions = true
 	iterOpts.PrefetchValues = false
-	itr := txn.NewKeyIterator(key, iterOpts)
+	itr := txn.NewKeyIterator(key, iterOpts) // NewKeyIterator与NewIterator类似，但允许用户迭代单个键的所有版本。在内部，它在提供的opt中设置Prefix选项，并在从LSM树中拾取表之前使用该前缀额外运行布隆过滤器查找。
 	// NewKeyIterator与在看Badger源码的NewIterator类似，但允许用户迭代单个键的所有版本。在内部，它在提供的opt中设置Prefix选项，并在从LSM树中拾取表之前使用该前缀额外运行布隆过滤器查找。
 	defer itr.Close()
 	itr.Seek(key) //如果存在，Seek将查找提供的密钥。如果不存在，如果向前迭代，它将寻求比提供的键大的下一个最小键。如果向后迭代，行为将发生逆转。
@@ -725,21 +725,22 @@ func (ml *MemoryLayer) ReadData(key []byte, pstore *badger.DB, readTs uint64) (*
 	// 我们首先尝试从缓存中读取数据（如果存在）。如果它不存在，那么我们将从磁盘读取最新数据。这将被存储在缓存中。如果此读取具有minTs>readTs，那么我们必须从磁盘读取正确的时间戳（minTs是不变层时间戳）。
 	l := ml.readFromCache(key, readTs) // NOTE:核心操作，先尝试从Cache中读取PostList
 	// zzlTODO:大部分都看懂了，但还有一个待解决的点，就是为什么下面先读取了所有版本，然后才会再去读当前查询的版本呢？以及key值应该是不相同把，相同的话不怕Badger的合并给合并了？
+	// NOTE:上面这个TODO暂时不急，因为需要看新增的逻辑是什么，才能了解为什么。
 	if l != nil { // 如果读出来数据了，就直接跳出来
 		l.mutationMap.setTs(readTs) // 设置读出来的PostList对象的可变层的readTs
 		return l, nil
 	}
-	l, err := ml.readFromDisk(key, pstore, math.MaxUint64) // NOTE:核心操作，尝试从磁盘中读取（readTs设置为最大值，代表读取所有版本）
+	l, err := ml.readFromDisk(key, pstore, math.MaxUint64) // NOTE:核心操作，尝试从磁盘中读取（readTs设置为最大值，代表遍历当前key的所有版本，从高到低）
 	if err != nil {
 		return nil, err
 	}
 	ml.saveInCache(key, l) // 将刚从磁盘读取的PostList，保存到缓存中
-	if l.minTs == 0 || readTs >= l.minTs { // 如果当前l的不可变层对象无目标数据，或者当次查询的readTs大于等于不可变层KV对的CommitTs
+	if l.minTs == 0 || readTs >= l.minTs { // 如果当前l的不可变层对象无目标数据，或者当次查询的readTs大于等于不可变层KV对的CommitTs，即可直接返回了
 		l.mutationMap.setTs(readTs)
 		return l, nil
 	}
 
-	l, err = ml.readFromDisk(key, pstore, readTs) // NOTE:核心操作，尝试从磁盘中读取（readTs设置为本次查询的readTs）
+	l, err = ml.readFromDisk(key, pstore, readTs) // NOTE:核心操作，尝试从磁盘中读取（readTs设置为本次查询的readTs），最新版本不满足当前查询的要求
 	if err != nil {
 		return nil, err
 	}

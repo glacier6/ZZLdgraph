@@ -598,8 +598,8 @@ type TaskValue struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Val     []byte          `protobuf:"bytes,1,opt,name=val,proto3" json:"val,omitempty"`
-	ValType Posting_ValType `protobuf:"varint,2,opt,name=val_type,json=valType,proto3,enum=pb.Posting_ValType" json:"val_type,omitempty"`
+	Val     []byte          `protobuf:"bytes,1,opt,name=val,proto3" json:"val,omitempty"` //值
+	ValType Posting_ValType `protobuf:"varint,2,opt,name=val_type,json=valType,proto3,enum=pb.Posting_ValType" json:"val_type,omitempty"` //值类型
 }
 
 func (x *TaskValue) Reset() {
@@ -728,7 +728,7 @@ type Query struct {
 	Reverse      bool         `protobuf:"varint,7,opt,name=reverse,proto3" json:"reverse,omitempty"`                              // Whether this is a reverse edge.
 	FacetParam   *FacetParams `protobuf:"bytes,8,opt,name=facet_param,json=facetParam,proto3" json:"facet_param,omitempty"`       // which facets to fetch
 	FacetsFilter *FilterTree  `protobuf:"bytes,9,opt,name=facets_filter,json=facetsFilter,proto3" json:"facets_filter,omitempty"` // filtering on facets : has Op (and/or/not) tree
-	ExpandAll    bool         `protobuf:"varint,10,opt,name=expand_all,json=expandAll,proto3" json:"expand_all,omitempty"`        // expand all language variants.
+	ExpandAll    bool         `protobuf:"varint,10,opt,name=expand_all,json=expandAll,proto3" json:"expand_all,omitempty"`        // expand all language variants.//扩展所有语言变体。
 	ReadTs       uint64       `protobuf:"varint,13,opt,name=read_ts,json=readTs,proto3" json:"read_ts,omitempty"`
 	Cache        int32        `protobuf:"varint,14,opt,name=cache,proto3" json:"cache,omitempty"`
 

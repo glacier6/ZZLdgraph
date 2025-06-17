@@ -131,6 +131,7 @@ func (t TypeID) Name() string {
 }
 
 // Val is a value with type information.
+// Val是一个具有类型信息的值。
 type Val struct {
 	Tid   TypeID
 	Value interface{}
@@ -168,6 +169,7 @@ func (t TypeID) IsNumber() bool {
 }
 
 // ValueForType returns the zero value for a type id
+// ValueForType返回类型id的零值
 func ValueForType(id TypeID) Val {
 	switch id {
 	case BinaryID:

@@ -104,6 +104,7 @@ func cannotConvertToVFloat(s string) error {
 }
 
 // Convert converts the value to given scalar type.
+// Convert将Value转换为给定的标量类型。
 func Convert(from Val, toID TypeID) (Val, error) {
 	to := Val{Tid: toID}
 

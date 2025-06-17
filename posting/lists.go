@@ -327,13 +327,13 @@ func (lc *LocalCache) readPostingListAt(key []byte) (*pb.PostingList, error) {
 	txn := pstore.NewTransactionAt(lc.startTs, false)
 	defer txn.Discard()
 
-	item, err := txn.Get(key)
+	item, err := txn.Get(key) //NOTE:核心操作，直接从Badger中得到了key对应的最新版本的Value，不需要用Iterater了
 	if err != nil {
 		return nil, err
 	}
 
 	err = item.Value(func(val []byte) error {
-		return proto.Unmarshal(val, pl)
+		return proto.Unmarshal(val, pl) // 解码
 	})
 
 	return pl, err
@@ -341,37 +341,40 @@ func (lc *LocalCache) readPostingListAt(key []byte) (*pb.PostingList, error) {
 
 // GetSinglePosting retrieves the cached version of the first item in the list associated with the
 // given key. This is used for retrieving the value of a scalar predicats.
+// GetSinglePosting检索与给定key关联的列表中第一个item的存储版本。这用于检索标量谓词的值。
 func (lc *LocalCache) GetSinglePosting(key []byte) (*pb.PostingList, error) {
 	// This would return an error if there is some data in the local cache, but we couldn't read it.
+	// 如果本地缓存中有一些数据，但我们无法读取，则会返回错误。
 	getListFromLocalCache := func() (*pb.PostingList, error) {
 		lc.RLock()
 
 		pl := &pb.PostingList{}
-		if delta, ok := lc.deltas[string(key)]; ok && len(delta) > 0 {
-			err := proto.Unmarshal(delta, pl)
+		if delta, ok := lc.deltas[string(key)]; ok && len(delta) > 0 { // 如果本地缓存deltas中有目标数据
+			err := proto.Unmarshal(delta, pl) // 解码读取到PL中
 			lc.RUnlock()
 			return pl, err
 		}
 
-		l := lc.plists[string(key)]
+		l := lc.plists[string(key)] // 如果本地缓存plists中有目标数据
 		lc.RUnlock()
 
 		if l != nil {
-			return l.StaticValue(lc.startTs)
+			return l.StaticValue(lc.startTs) // zzlTODO:111,这个是做什么的？
 		}
 
-		return nil, nil
+		return nil, nil // 没找到
 	}
 
 	getPostings := func() (*pb.PostingList, error) {
-		pl, err := getListFromLocalCache()
+		pl, err := getListFromLocalCache() //NOTE:核心操作，看缓存有没有该key的版本
 		// If both pl and err are empty, that means that there was no data in local cache, hence we should
 		// read the data from badger.
+		// 如果pl和err都为空，则意味着本地缓存中没有数据，因此我们应该从Badger中读取数据。
 		if pl != nil || err != nil {
 			return pl, err
 		}
 
-		return lc.readPostingListAt(key)
+		return lc.readPostingListAt(key) //NOTE:核心操作，去Badger查询key的最新版本
 	}
 
 	pl, err := getPostings()
@@ -383,6 +386,7 @@ func (lc *LocalCache) GetSinglePosting(key []byte) (*pb.PostingList, error) {
 	}
 
 	// Filter and remove STAR_ALL and OP_DELETE Postings
+	// 过滤并删除STAR_ALL和OP_DELETE标志的Postings
 	idx := 0
 	for _, postings := range pl.Postings {
 		if hasDeleteAll(postings) {
@@ -398,7 +402,7 @@ func (lc *LocalCache) GetSinglePosting(key []byte) (*pb.PostingList, error) {
 }
 
 // Get retrieves the cached version of the list associated with the given key.
-// Get检索与给定键关联的list的缓存版本。
+// Get检索与给定键关联的list的存储版本。
 func (lc *LocalCache) Get(key []byte) (*List, error) {
 	return lc.getInternal(key, true)
 }

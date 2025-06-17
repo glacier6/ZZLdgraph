@@ -990,6 +990,7 @@ func Diff(dst map[string]struct{}, src map[string]struct{}) ([]string, []string)
 }
 
 // SpanTimer returns a function used to record the duration of the given span.
+// SpanTimer返回一个函数，用于记录给定跨度的持续时间。
 func SpanTimer(span *trace.Span, name string) func() {
 	if span == nil {
 		return func() {}
