@@ -342,24 +342,26 @@ func (lc *LocalCache) readPostingListAt(key []byte) (*pb.PostingList, error) {
 // GetSinglePosting retrieves the cached version of the first item in the list associated with the
 // given key. This is used for retrieving the value of a scalar predicats.
 // GetSinglePosting检索与给定key关联的列表中第一个item的存储版本。这用于检索标量谓词的值。
+// NOTE:注意，要的是一个PostingList对象，不是比PostingList高一级别的那个List
 func (lc *LocalCache) GetSinglePosting(key []byte) (*pb.PostingList, error) {
 	// This would return an error if there is some data in the local cache, but we couldn't read it.
 	// 如果本地缓存中有一些数据，但我们无法读取，则会返回错误。
 	getListFromLocalCache := func() (*pb.PostingList, error) {
 		lc.RLock()
 
+		// 下面这一块尝试从本地缓存deltas（应该是存最新增加的数据，需要看突变流程）中取出目标数据 zzlTODO:这个Deltas是什么，数据怎么放进去的
 		pl := &pb.PostingList{}
-		if delta, ok := lc.deltas[string(key)]; ok && len(delta) > 0 { // 如果本地缓存deltas中有目标数据
+		if delta, ok := lc.deltas[string(key)]; ok && len(delta) > 0 {
 			err := proto.Unmarshal(delta, pl) // 解码读取到PL中
 			lc.RUnlock()
 			return pl, err
 		}
 
-		l := lc.plists[string(key)] // 如果本地缓存plists中有目标数据
+		// 从本地缓存plists中取得目标数据
+		l := lc.plists[string(key)]
 		lc.RUnlock()
-
 		if l != nil {
-			return l.StaticValue(lc.startTs) // zzlTODO:111,这个是做什么的？
+			return l.StaticValue(lc.startTs) // NOTE:核心操作，从获取到的List对象中先查看可变层是否有数据，如果没有的话，就直接返回不可变层，如果有的话，那么就尝试从可变层取得最新版本的目标PostingList
 		}
 
 		return nil, nil // 没找到

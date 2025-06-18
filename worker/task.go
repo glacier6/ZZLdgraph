@@ -477,7 +477,7 @@ func (qs *queryState) handleValuePostings(ctx context.Context, args funcArgs) er
 			// 下面这个if会按照查询类型，获取到目标数据
 			if !getMultiplePosting { 
 				// 如果不用获取多版本的目标值（虽然是单版本，但一个KV对貌似也可以解析出来多个Value）
-				pl, err := qs.cache.GetSinglePosting(key) // NOTE:核心操作，获取单一最新版本的value,存储在pl.Postings下面
+				pl, err := qs.cache.GetSinglePosting(key) // NOTE:核心操作，获取单一最新版本的posting,先查缓存，再查Badger，存储在pl.Postings下面
 				if err != nil {
 					return err
 				}
@@ -497,7 +497,7 @@ func (qs *queryState) handleValuePostings(ctx context.Context, args funcArgs) er
 				}
 			} else { 
 				// 如果需要获取多版本的目标值
-				pl, err := qs.cache.Get(key) //NOTE:核心操作，这个函数调用的与查询UID的一样
+				pl, err := qs.cache.Get(key) //NOTE:核心操作，这个函数调用的与查询UID的一样（即类似查一个人的朋友，这个人（主语）的朋友（谓词）可能分别存储在不可变层与可变层）
 				if err != nil {
 					return err
 				}
@@ -516,7 +516,7 @@ func (qs *queryState) handleValuePostings(ctx context.Context, args funcArgs) er
 					continue
 				}
 
-				vals, fcs, err = retrieveValuesAndFacets(args, pl, facetsTree, listType) //NOTE:核心操作，检索出来需要的值 zzlTODO:2222,看一下，做的什么，貌似主要是根据查询语句的facet来进行筛选
+				vals, fcs, err = retrieveValuesAndFacets(args, pl, facetsTree, listType) //NOTE:核心操作，从list对象中检索查询出需要的值与facet（注意完整的数据实际已经在内存了，这个函数只不过是做一些检索的操作）
 
 				switch {
 				case err == posting.ErrNoValue || (err == nil && len(vals) == 0): // 如果无目标值或者报错
@@ -664,14 +664,16 @@ func facetsFilterValuePostingList(args funcArgs, pl *posting.List, facetsTree *f
 	var langMatch *pb.Posting
 	var err error
 
-	// We need to pick multiple postings only in two cases:
+	// We need to pick multiple postings only in two cases: // 我们只需要在两种情况下选择多个Posting：
 	// 1. ExpandAll is true.
-	// 2. Attribute type is of list type and no lang tag is specified in query.
+	// 2. Attribute type is of list type and no lang tag is specified in query. 属性类型为列表类型，查询中未指定lang标记。
 	pickMultiplePostings := q.ExpandAll || (listType && len(q.Langs) == 0)
 
 	if !pickMultiplePostings {
+		// 如果不需要选择多个Posting
+		// 检索与语言首选项匹配的Posting。
 		// Retrieve the posting that matches the language preferences.
-		langMatch, err = pl.PostingFor(q.ReadTs, q.Langs)
+		langMatch, err = pl.PostingFor(q.ReadTs, q.Langs) // 得到pl中第一个符合语言筛选的Posting
 		if err != nil && err != posting.ErrNoValue {
 			return err
 		}
@@ -680,35 +682,46 @@ func facetsFilterValuePostingList(args funcArgs, pl *posting.List, facetsTree *f
 	// TODO(Ashish): This function starts iteration from start(afterUID is always 0). This can be
 	// optimized in come cases. For example when we know lang tag to fetch, we can directly jump
 	// to posting starting with that UID(check list.ValueFor()).
+	// TODO（Ashish）：此函数从头开始迭代（afterUID始终为0）。在某些情况下，这可以优化。
+	// 例如，当我们知道要获取lang标签时，我们可以直接跳到以该UID开头的posting（check-list.ValueFor（））。
 	return pl.Iterate(q.ReadTs, 0, func(p *pb.Posting) error {
+		//这个遍历器遍历pl中符合ts与afterid的每一个posting，比如p会是en版本的name，也会是cn版本的name
+
+		// 下面这一块是做语言筛选的
 		if q.ExpandAll {
 			// If q.ExpandAll is true we need to consider all postings irrespective of langs.
+			// 如果q.ExpandAll为真，我们需要考虑所有Posting，无论语言如何。
 		} else if listType && len(q.Langs) == 0 {
 			// Don't retrieve tagged values unless explicitly asked.
+			// 除非明确要求，否则不要检索标记值。
 			if len(p.LangTag) > 0 {
 				return nil
 			}
 		} else {
 			// Only consider the posting that matches our language preferences.
-			if !proto.Equal(p, langMatch) {
-				return nil
+			// 只考虑符合我们语言偏好的Posting。
+			if !proto.Equal(p, langMatch) { // 如果与前面的得到的posting不同，就返回
+				return nil // Continue iteration. 继续迭代
 			}
 		}
 
+		// 下面这一块是做facet筛选的
 		// If filterTree is nil, applyFacetsTree returns true and nil error.
-		picked, err := applyFacetsTree(p.Facets, facetsTree)
+		// 如果filterTree为nil，applyFacetsTree将返回true和nil错误。
+		picked, err := applyFacetsTree(p.Facets, facetsTree) // NOTE:核心操作，facetsTree是属于查询条件的
 		if err != nil {
 			return err
 		}
-		if picked {
-			fn(p)
+		if picked { // 如果Facets筛选条件也符合
+			fn(p) // 再应用上层传递的函数
 		}
 
-		if pickMultiplePostings {
-			return nil // Continue iteration.
+		if pickMultiplePostings { // 如果需要选多个，那么就继续迭代，否则下面直接返回即可
+			return nil // Continue iteration. 
 		}
 
 		// We have picked the right posting, we can stop iteration now.
+		// 我们已经选择了正确的Posting，现在可以停止迭代了。
 		return posting.ErrStopIteration
 	})
 }
@@ -728,16 +741,16 @@ func countForValuePostings(args funcArgs, pl *posting.List, facetsTree *facetsTr
 
 func retrieveValuesAndFacets(args funcArgs, pl *posting.List, facetsTree *facetsTree,
 	listType bool) ([]types.Val, *pb.FacetsList, error) {
-	q := args.q
-	var vals []types.Val
-	var fcs []*pb.Facets
+	q := args.q // 得到查询任务
+	var vals []types.Val // 存值与值类型信息
+	var fcs []*pb.Facets // 有关facet的
 
-	err := facetsFilterValuePostingList(args, pl, facetsTree, listType, func(p *pb.Posting) {
+	err := facetsFilterValuePostingList(args, pl, facetsTree, listType, func(p *pb.Posting) { // NOTE:核心操作
 		vals = append(vals, types.Val{
-			Tid:   types.TypeID(p.ValType),
-			Value: p.Value,
+			Tid:   types.TypeID(p.ValType), // 设置值类型
+			Value: p.Value, // 设置值
 		})
-		if q.FacetParam != nil {
+		if q.FacetParam != nil { // 如果有facet筛选词条
 			fcs = append(fcs, &pb.Facets{Facets: facets.CopyFacets(p.Facets, q.FacetParam)})
 		}
 	})
@@ -753,11 +766,12 @@ func facetsFilterUidPostingList(pl *posting.List, facetsTree *facetsTree, opts p
 
 	return pl.Postings(opts, func(p *pb.Posting) error {
 		// If filterTree is nil, applyFacetsTree returns true and nil error.
-		pick, err := applyFacetsTree(p.Facets, facetsTree)
+		// 如果filterTree为nil，applyFacetsTree将返回true和nil错误。
+		pick, err := applyFacetsTree(p.Facets, facetsTree) // NOTE:核心操作，判断是否选中当前的posting
 		if err != nil {
 			return err
 		}
-		if pick {
+		if pick { //如果选中
 			fn(p)
 		}
 		return nil
@@ -787,7 +801,7 @@ func retrieveUidsAndFacets(args funcArgs, pl *posting.List, facetsTree *facetsTr
 		Uids: make([]uint64, 0, pl.ApproxLen()), // preallocate uid slice.
 	}
 
-	err := facetsFilterUidPostingList(pl, facetsTree, opts, func(p *pb.Posting) {
+	err := facetsFilterUidPostingList(pl, facetsTree, opts, func(p *pb.Posting) { // NOTE:核心操作，筛选出符合facet筛选条件的边
 		uidList.Uids = append(uidList.Uids, p.Uid)
 		if q.FacetParam != nil {
 			fcsList = append(fcsList, &pb.Facets{
@@ -985,7 +999,7 @@ func (qs *queryState) handleUidPostings(
 				if i == 0 {
 					span.Annotate(nil, "default with facets")
 				}
-				uidList, fcsList, err := retrieveUidsAndFacets(args, pl, facetsTree, opts)
+				uidList, fcsList, err := retrieveUidsAndFacets(args, pl, facetsTree, opts) // NOTE:核心操作，当有facet的时候，在这里进行目标节点UID的筛选
 				if err != nil {
 					return err
 				}
@@ -2267,6 +2281,11 @@ func (w *grpcWorker) ServeTask(ctx context.Context, q *pb.Query) (*pb.Result, er
 // applyFacetsTree : we return error only when query has some problems.
 // like Or has 3 arguments, argument facet val overflows integer.
 // returns true if postingFacets can be included.
+// applyFacetsTree：只有当查询出现问题时，我们才会返回错误。
+// 像Or有3个参数一样，参数方面val溢出整数。
+// 如果可以包含postingFacets，则返回true。
+// NOTE:这个函数在查UID和Value的那两个主函数内的facet操作时，均会调用到这里
+// 这个函数就是判断当前遍历的posting的facets属性是否满足当前由查询条件生成的ftree
 func applyFacetsTree(postingFacets []*api.Facet, ftree *facetsTree) (bool, error) {
 	if ftree == nil {
 		return true, nil

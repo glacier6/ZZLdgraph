@@ -109,7 +109,7 @@ type MutableLayer struct { // PostingList的可变层
 	// going to be used repeatedly.
 	// 因为我们分别存储commitedEntries和currentEntries。我们可以缓存将被重复使用的东西。
 	committedEntries map[uint64]*pb.PostingList //缓存一个个增量PostingList，注意这个map的key是pl.CommitTs
-	currentEntries   *pb.PostingList
+	currentEntries   *pb.PostingList // 貌似是与下面ReadTS对应的那个PostingList
 	readTs           uint64  // 当次查询结果对应的查询条件内的readTs
 
 	deleteAllMarker uint64 // Stores the latest deleteAllMarker found in the posting list //存储发布列表中找到的最新deleteAllMarker
@@ -181,6 +181,7 @@ func (mm *MutableLayer) setCurrentEntries(ts uint64, pl *pb.PostingList) {
 
 // get() returns the posting stored in the mutable layer at any given timestamp. If the ts is the same as readTs,
 // we will return the currentEntries, otherwise it should be the commitTs of old postings.
+// get（）返回在任何给定时间戳存储在可变层中的发布。如果ts与readTs相同，我们将返回currentEntries，否则它应该是旧postings的commitTs。
 func (mm *MutableLayer) get(ts uint64) *pb.PostingList {
 	if mm == nil {
 		return nil
@@ -1068,6 +1069,10 @@ func (l *List) setMutation(startTs uint64, data []byte) {
 // The iteration will start after the provided UID. The results would not include this uid.
 // The function will loop until either the posting List is fully iterated, or you return a false
 // in the provided function, which will indicate to the function to break out of the iteration.
+// Iterate将允许您在获取读取锁的同时迭代此发布列表的可变和不可变层。
+// 所以，请保持这种迭代的成本低廉，否则突变会卡住。
+// 迭代将在提供的UID之后开始。结果不包括此uid。
+// 该函数将循环，直到Posting LIst完全迭代，或者在提供的函数中返回false，这将指示函数退出迭代。
 //
 //		pl.Iterate(..., func(p *pb.posting) error {
 //	   // Use posting p
@@ -1931,14 +1936,16 @@ func (l *List) StaticValue(readTs uint64) (*pb.PostingList, error) {
 	l.RLock()
 	defer l.RUnlock()
 
-	return l.findStaticValue(readTs), nil
+	return l.findStaticValue(readTs), nil // NOTE:核心操作
 }
 
+// 功能就是返回l中版本小于readTs的最新Posting
 func (l *List) findStaticValue(readTs uint64) *pb.PostingList {
 	l.AssertRLock()
 
 	if l.mutationMap == nil {
 		// If mutation map is empty, check if there is some data, and return it.
+		// 如果可变层为空，请检查不可变层是否有数据，有的话将其返回。
 		if l.plist != nil && len(l.plist.Postings) > 0 {
 			return l.plist
 		}
@@ -1946,11 +1953,13 @@ func (l *List) findStaticValue(readTs uint64) *pb.PostingList {
 	}
 
 	// Return readTs is if it's present in the mutation. It's going to be the latest value.
+	// 返回readTsx相等的currentEntries，这将是最新的value。
 	if l.mutationMap.currentEntries != nil && l.mutationMap.readTs == readTs {
 		return l.mutationMap.currentEntries
 	}
 
 	// If maxTs < readTs then we need to read maxTs
+	// 如果maxTs<readTs，那么我们需要读取maxTs
 	if l.maxTs <= readTs {
 		if mutation := l.mutationMap.get(l.maxTs); mutation != nil {
 			return mutation
@@ -1958,6 +1967,7 @@ func (l *List) findStaticValue(readTs uint64) *pb.PostingList {
 	}
 
 	// This means that maxTs > readTs. Go through the map to find the closest value to readTs
+	// 这意味着maxTs>readTs。浏览map，找到最接近读数的值
 	var mutation *pb.PostingList
 	ts_found := uint64(0)
 	l.mutationMap.iterate(func(startTs uint64, mutation_i *pb.PostingList) {
@@ -1973,6 +1983,7 @@ func (l *List) findStaticValue(readTs uint64) *pb.PostingList {
 
 	// If we reach here, that means that there was no entry in mutation map which is less than readTs. That
 	// means we need to return l.plist
+	// 如果我们到达这里，这意味着突变图谱中没有低于readTs的条目。这意味着我们需要归还l.plist
 	return l.plist
 }
 
@@ -2017,6 +2028,7 @@ func (l *List) ValueFor(readTs uint64, langs []string) (rval types.Val, rerr err
 }
 
 // PostingFor returns the posting according to the preferred language list.
+// PostingFor根据首选语言列表返回Posting。
 func (l *List) PostingFor(readTs uint64, langs []string) (p *pb.Posting, rerr error) {
 	l.RLock()
 	defer l.RUnlock()
@@ -2024,7 +2036,7 @@ func (l *List) PostingFor(readTs uint64, langs []string) (p *pb.Posting, rerr er
 }
 
 func (l *List) postingFor(readTs uint64, langs []string) (p *pb.Posting, rerr error) {
-	l.AssertRLock() // Avoid recursive locking by asserting a lock here.
+	l.AssertRLock() // Avoid recursive locking by asserting a lock here. 通过在此处声明锁来避免递归锁定。
 	return l.postingForLangs(readTs, langs)
 }
 
@@ -2052,18 +2064,20 @@ func (l *List) postingForLangs(readTs uint64, langs []string) (*pb.Posting, erro
 
 	any := false
 	// look for language in preferred order
+	// 按首选顺序查找语言
 	for _, lang := range langs {
 		if lang == "." {
 			any = true
 			break
 		}
-		pos, err := l.postingForTag(readTs, lang)
+		pos, err := l.postingForTag(readTs, lang) // 按照语言标签去找posting
 		if err == nil {
-			return pos, nil
+			return pos, nil // 找到直接就返回
 		}
 	}
 
 	// look for value without language
+	// 在没有lang的情况下寻找value
 	if any || len(langs) == 0 {
 		found, pos, err := l.findPosting(readTs, math.MaxUint64)
 		switch {
@@ -2133,6 +2147,8 @@ func (l *List) FindPosting(readTs uint64, uid uint64) (found bool, pos *pb.Posti
 func (l *List) findPostingWithItr(readTs uint64, uid uint64, pitr pIterator) (found bool, pos *pb.Posting, err error) {
 	// Iterate starts iterating after the given argument, so we pass UID - 1
 	// TODO Find what happens when uid = math.MaxUint64
+	// Iterate在给定参数后开始迭代，因此我们传递UID-1
+  // TODO查找当uid=math时会发生什么。MaxUint64
 	searchFurther, pos := l.mutationMap.findPosting(readTs, uid)
 	if pos != nil {
 		return true, pos, nil

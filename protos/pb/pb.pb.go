@@ -3032,6 +3032,7 @@ func (x *KVS) GetTypes() []string {
 }
 
 // Posting messages.
+// 这个是Dgraph的基本操作单元
 type Posting struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache

@@ -18,7 +18,6 @@
     }
 }
 
-
 query ZZLQuery($myname : string ="zzlFunName"){
 		find_follower(func:anyofterms(funName, "zzlFunName zzlFunName2")){
       funName
@@ -39,7 +38,7 @@ query ZZLQuery($myname : string ="zzlFunName"){
 
 
 
-//嵌套测试
+//双子嵌套新增
 {
   "set":[
     {
@@ -50,26 +49,15 @@ query ZZLQuery($myname : string ="zzlFunName"){
   				"qtfollowerage":111
         },
         {
-        "qtfollowerName":"qtfollowerName2",
-                  "qtfollowerage":222
+          "qtfollowerName":"qtfollowerName2",
+          "qtfollowerage":222
         }
       ]
     }
   ]
 }
 
-{
-    find_follower2(func: has(qtname)){
-        qtname
-        qtage
-    			 qtfollower{
-						  qtfollowerName
-        		qtfollowerage
-        }
-  }
-}
-
-// 方便观察层次
+// 两个单子嵌套
 {
   "set":[
     {
@@ -93,6 +81,18 @@ query ZZLQuery($myname : string ="zzlFunName"){
   ]
 }
 
+//简单查询
+{
+  find_follower2(func: has(qtname)){
+      qtname
+      qtage
+  		qtfollower{
+				qtfollowerName
+       	qtfollowerage
+      }
+  }
+}
+
 // 双嵌套查询
 {
     find_follower1(func: has(qtname)){
@@ -113,9 +113,96 @@ query ZZLQuery($myname : string ="zzlFunName"){
     }
 }
 
-删除
+
+
+
+
+
+
+
+
+下面是有关facet测试的
+{
+  "set":[
     {
-      delete {
-        <0x11172> <follows> <0x11171> .
-      }
+  			"myName":"hanjiang8",
+  			"myAge":26,
+        "myName|usetime":"yijiujiujiu",
+  			"friends":[{
+					"friName":"closeFriName1",
+          "friends|close":"yes",
+  				"friAge":111
+        },
+        {
+          "friName":"friName2",
+          "friAge":222
+        }
+      ]
     }
+  ]
+}
+
+{
+  get_myfriend(func: eq(myName,"hanjiang6")){
+      myName @facets
+      myAge
+  		friends @facets(eq(close,"yes")){
+				friName
+       	friAge
+      }
+  }
+}
+
+再加上多语言
+{
+  "set":[
+    {
+  			"myName@en":"hanjiang9",
+  			"myName@cn":"赵泽来",
+  			"myAge":26,
+        "myName@en|usetime":"yijiujiujiu",
+  			"friends":[{
+					"friName":"closeFriName1",
+          "friends|close":"yes",
+  				"friAge":111
+        },
+        {
+          "friName":"friName2",
+          "friAge":222
+        }
+      ]
+    }
+  ]
+}
+{
+  get_myfriend(func: eq(myName@en,"hanjiang9")){
+      myName@en @facets
+      myName@cn
+      myAge
+  		friends @facets(eq(close,"yes")){
+				friName
+       	friAge
+        friend @facets(eq(isclose,"yes")){
+				  friName
+       	  friAge
+        }
+      }
+  }
+}
+
+删除
+  JSON
+  {
+   "delete": [
+        {
+          "uid": "0x123"
+        }
+    ]
+  }
+
+  RDF
+  {
+    delete {
+      <0x11172> <follows> <0x11171> .
+    }
+  }
