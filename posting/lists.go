@@ -349,7 +349,7 @@ func (lc *LocalCache) GetSinglePosting(key []byte) (*pb.PostingList, error) {
 	getListFromLocalCache := func() (*pb.PostingList, error) {
 		lc.RLock()
 
-		// 下面这一块尝试从本地缓存deltas（应该是存最新增加的数据，需要看突变流程）中取出目标数据 zzlTODO:这个Deltas是什么，数据怎么放进去的
+		// 下面这一块尝试从本地缓存deltas（应该是存最新增加的数据，需要看突变流程）中取出目标数据 zzlTODO:这个Deltas是什么，数据怎么放进去的(在突变里面看看)
 		pl := &pb.PostingList{}
 		if delta, ok := lc.deltas[string(key)]; ok && len(delta) > 0 {
 			err := proto.Unmarshal(delta, pl) // 解码读取到PL中

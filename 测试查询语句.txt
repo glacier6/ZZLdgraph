@@ -125,7 +125,7 @@ query ZZLQuery($myname : string ="zzlFunName"){
 {
   "set":[
     {
-  			"myName":"hanjiang8",
+  			"myName":"hanjiang616",
   			"myAge":26,
         "myName|usetime":"yijiujiujiu",
   			"friends":[{

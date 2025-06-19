@@ -53,7 +53,7 @@ import (
 // 调用到另一个Dgraph Alpha实例上 的 ServeTask 接口
 func invokeNetworkRequest(ctx context.Context, addr string,
 	f func(context.Context, pb.WorkerClient) (interface{}, error)) (interface{}, error) {
-	pl, err := conn.GetPools().Get(addr)
+	pl, err := conn.GetPools().Get(addr) // 获取连接目标服务器的连接池对象
 	if err != nil {
 		return nil, errors.Wrapf(err, "dispatchTaskOverNetwork: while retrieving connection.")
 	}
@@ -61,31 +61,33 @@ func invokeNetworkRequest(ctx context.Context, addr string,
 	if span := otrace.FromContext(ctx); span != nil {
 		span.Annotatef(nil, "invokeNetworkRequest: Sending request to %v", addr)
 	}
-	c := pb.NewWorkerClient(pl.Get())
-	return f(ctx, c)
+	c := pb.NewWorkerClient(pl.Get()) // NOTE:核心操作，由连接池中的连接，获取目标服务器工作客户端WorkerClient（这个对象由gRPC负责生成）
+	return f(ctx, c) // 执行传递的函数
 }
 
 const backupRequestGracePeriod = time.Second
 
 // TODO: Cross-server cancellation as described in Jeff Dean's talk.
+// gid是目标谓词所在组
 func processWithBackupRequest(
 	ctx context.Context,
 	gid uint32,
 	f func(context.Context, pb.WorkerClient) (interface{}, error)) (interface{}, error) {
-	addrs := groups().AnyTwoServers(gid)
+	addrs := groups().AnyTwoServers(gid) // 得到一个字符串切片，内包含gid群组下至多2个的服务器地址
 	if len(addrs) == 0 {
 		return nil, errors.New("No network connection")
 	}
-	if len(addrs) == 1 {
+	if len(addrs) == 1 {// 如果目标group只有一台服务器
 		reply, err := invokeNetworkRequest(ctx, addrs[0], f) //NOTE:核心操作，去别的组查了
 		return reply, err
 	}
+	// 下面是当有多个服务器的时候，
 	type taskresult struct {
 		reply interface{}
 		err   error
 	}
 
-	chResults := make(chan taskresult, len(addrs))
+	chResults := make(chan taskresult, len(addrs)) // 创建结果通道
 	ctx0, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -94,21 +96,22 @@ func processWithBackupRequest(
 		chResults <- taskresult{reply, err}
 	}()
 
+	// 计时器
 	timer := time.NewTimer(backupRequestGracePeriod)
 	defer timer.Stop()
 
 	select {
-	case <-ctx.Done():
+	case <-ctx.Done(): // 监听取消信号
 		return nil, ctx.Err()
-	case <-timer.C:
+	case <-timer.C: // 设置的1S的监听定时器超时，尝试向第二个服务器发送请求
 		go func() {
 			reply, err := invokeNetworkRequest(ctx0, addrs[1], f)
 			chResults <- taskresult{reply, err}
 		}()
 		select {
-		case <-ctx.Done():
+		case <-ctx.Done(): // 监听取消信号
 			return nil, ctx.Err()
-		case result := <-chResults:
+		case result := <-chResults: // 拿到数据
 			if result.err != nil {
 				select {
 				case <-ctx.Done():
@@ -120,9 +123,9 @@ func processWithBackupRequest(
 				return result.reply, nil
 			}
 		}
-	case result := <-chResults:
-		if result.err != nil {
-			cancel() // Might as well cleanup resources ASAP
+	case result := <-chResults: // 一号服务器返回数据
+		if result.err != nil { // 一号服务器有报错
+			cancel() // Might as well cleanup resources ASAP //不妨尽快清理资源
 			timer.Stop()
 			return invokeNetworkRequest(ctx, addrs[1], f)
 		}
@@ -157,9 +160,9 @@ func ProcessTaskOverNetwork(ctx context.Context, q *pb.Query) (*pb.Result, error
 		return processTask(ctx, q, gid) // NOTE:核心操作，直接本地查询
 	}
 
-	result, err := processWithBackupRequest(ctx, gid, //NOTE:核心操作，不在当前组，此时应该发起RPC远程调用 zzlTODO:待看RPC是怎么发的，又是怎么接受处理的？
-		func(ctx context.Context, c pb.WorkerClient) (interface{}, error) {
-			return c.ServeTask(ctx, q)
+	result, err := processWithBackupRequest(ctx, gid, //NOTE:核心操作，不在当前组，此时应该发起RPC远程调用 zzlTODO:待看RPC是怎么发的，又是怎么接受处理的？具体学习以下protobuf吧，应用挺广泛的
+		func(ctx context.Context, c pb.WorkerClient) (interface{}, error) { // c（WorkerClient）是Worker服务的客户端API。
+			return c.ServeTask(ctx, q)// NOTE:核心操作，像本地调用一样，调用远端的函数
 		})
 	if err != nil {
 		return nil, err
@@ -351,7 +354,7 @@ func (qs *queryState) handleValuePostings(ctx context.Context, args funcArgs) er
 	srcFn := args.srcFn
 	q := args.q // 获得查询的查询任务对象
 
-	facetsTree, err := preprocessFilter(q.FacetsFilter) // 得到facet树
+	facetsTree, err := preprocessFilter(q.FacetsFilter) // NOTE:得到查询条件的facet树，注意因为facet是和基本数据一起打包存在一个KV对的，所以是先查出来数据，再根据facet条件去筛选（而不是先给出facet的一些条件，再查数据）
 	if err != nil {
 		return err
 	}

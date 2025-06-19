@@ -587,6 +587,7 @@ func (g *groupi) HasMeInState() bool {
 }
 
 // Returns 0, 1, or 2 valid server addrs.
+// 返回0、1或2个有效的服务器地址。
 func (g *groupi) AnyTwoServers(gid uint32) []string {
 	g.RLock()
 	defer g.RUnlock()
@@ -594,13 +595,14 @@ func (g *groupi) AnyTwoServers(gid uint32) []string {
 	if g.state == nil {
 		return []string{}
 	}
-	group, has := g.state.Groups[gid]
+	group, has := g.state.Groups[gid] // 得到特定组ID下的那个组对象，内包含各个具体的服务器信息
 	if !has {
 		return []string{}
 	}
 	var res []string
-	for _, m := range group.Members {
+	for _, m := range group.Members { // 得到目标，注意是取出来的顺序是完全随机的
 		// map iteration gives us members in no particular order.
+		// 映射迭代为我们提供了没有特定顺序的成员。
 		res = append(res, m.Addr)
 		if len(res) >= 2 {
 			break

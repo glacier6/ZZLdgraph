@@ -74,11 +74,13 @@ func init() {
 }
 
 // GetPools returns the list of pools.
+// GetPools返回连接池列表。
 func GetPools() *Pools {
 	return pi
 }
 
 // Get returns the list for the given address.
+// Get返回给定地址的连接池。
 func (p *Pools) Get(addr string) (*Pool, error) {
 	p.RLock()
 	defer p.RUnlock()

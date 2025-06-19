@@ -954,6 +954,8 @@ const (
 // WorkerClient is the client API for Worker service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+// 有关ctx使用和关闭/结束流式RPC的语义，请参阅https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+// 各个定义的接口具体如何实现的就在下面紧挨着
 type WorkerClient interface {
 	// Data serving RPCs.
 	Mutate(ctx context.Context, in *Mutations, opts ...grpc.CallOption) (*api.TxnContext, error)
@@ -982,16 +984,17 @@ func NewWorkerClient(cc grpc.ClientConnInterface) WorkerClient {
 
 func (c *workerClient) Mutate(ctx context.Context, in *Mutations, opts ...grpc.CallOption) (*api.TxnContext, error) {
 	out := new(api.TxnContext)
-	err := c.cc.Invoke(ctx, Worker_Mutate_FullMethodName, in, out, opts...)
+	err := c.cc.Invoke(ctx, Worker_Mutate_FullMethodName, in, out, opts...) 
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
+// 处理任务，ctx是上下文对象，而in则是各种任务，如查询任务*pb.Query
 func (c *workerClient) ServeTask(ctx context.Context, in *Query, opts ...grpc.CallOption) (*Result, error) {
-	out := new(Result)
-	err := c.cc.Invoke(ctx, Worker_ServeTask_FullMethodName, in, out, opts...)
+	out := new(Result) // 先创建出结果存放地
+	err := c.cc.Invoke(ctx, Worker_ServeTask_FullMethodName, in, out, opts...) // Invoke是gRPC内的函数，执行一元RPC，并在收到响应后返回应答。
 	if err != nil {
 		return nil, err
 	}
