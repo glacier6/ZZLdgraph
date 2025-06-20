@@ -1,0 +1,46 @@
+syntax = "proto3";
+package zzlTestCode;
+
+// Protocol Buffers是什么？
+//  - 1 Protocol buffers 与JSON,XML等均是做数据序列化的，但是其是将数据转换为二进制格式（字节流）。
+//        Protocol buffers 是⼀种语⾔无关，平台⽆关，可扩展的序列化结构化数据的工具，可⽤于通信协议，数据存储 等。
+//        相较于JSON体积更小，传输更快，定义的.proto文件，可以在特定语言编译时，进行动态编译
+//        Protocol buffers 常用在分布式服务器交互以及序列化存储数据之中。  
+//  - 2 /ZZLdgraph/protos/pb.proto 这个proto类型的文件是 Protobuf 序列化机制的核心配置文件。它类似于 XML 模式（XSD）或 JSON Schema，但更轻量、高效，专为数据序列化和远程过程调用（RPC）设计。
+//        该文件与语言无关，可以生成各种语言类似下面所说的pb.go文件，以最终实现跨语言的数据交互
+//  - 3 如pb.go结尾的文件，都是由protobuf工具根据上面的proto文件 自动生成的，而``内则定义如何去序列化以及反序列化
+//        如uidblock中的 Base uint64 `protobuf:"varint,1,opt,name=base,proto3" json:"base,omitempty"`
+//        varint    表示  base字段采用Varint编码
+//        1         表示  字段标签号，Protobuf 中每个字段必须有唯一的标签号（1-2^29-1），用于在二进制数据中标识字段。
+//        opt       表示  当前base字段是可选字段
+//        name=base 表示  指定 Protobuf 消息定义中的字段名（需与 proto 文件中的名称一致）
+//        proto3    表示  声明使用 Protobuf v3 语法
+
+// protoc 生成代码命令
+// protoc --go_out=. --go_opt=paths=source_relative *.proto
+
+// PROTOC
+// 若要根据 proto 代码生成对应语言的代码（比如 Go），我们需要使用 protoc 命令，这个命令在之前已经给出安装教程。protoc 命令的常用参数如下所示：
+// 1. -I 或 --proto_path：指定 import 的文件查找路径，可以指定多个路径，例如 -Isrc -Iinclude。这样编译器会在这几个路径下查找 import 的 .proto 文件。
+// 2. --<language>_out：指定生成所指定的语言代码的输出目录，对于 Go：go_out=/directory。
+// 3. --<language>_opt：传递给指定语言插件的附加选项。作为 protoc 的插件，它们有着特定的参数选项，如果我们想指定某个参数选项，需要通过 <language>_opt 参数进行传递。例如：go_opt=paths=source_relative，传递 paths 参数选项给 protoc-gen-go 插件。
+// PS:在大多数情况下，通过指定 <language>_out 和 <language>_opt 参数，我们就可以满足代码生成的需求。值得一提的是，这些参数不限于单次使用；如果我们需要同时为多种语言生成代码，可以通过并行使用多个 <language>_opt 和 <language>_opt 来实现这一目标。
+// 若想了解更多的参数，可以运行 protoc --help 命令进行查看
+
+// PROTOC-GEN-GO插件
+// protoc-gen-go 是一个用于生成 Go 代码的插件，该插件有两个重要参数：
+// 1.paths：控制 go 文件生成的路径
+//    当 paths=import 时，输出文件将放置在 以 Go 包的导入路径命名 的目录中（导入路径 由 .proto 文件中的 go_package 选项提供）。例如，Go 导入路径为 github.com/chenmingyong0423/blog/tutorial-code/go/protobuf/proto/user，那么输出的 .go 文件将放置在 github.com/chenmingyong0423/blog/tutorial-code/go/protobuf/proto/user/user.pb.go 。如果未指定 paths 参数，paths 的值将默认为 import。
+//    当 paths=source_relative 时，输出的 .go 文件将与 .proto 文件位于同一相对目录中。例如， .proto 文件位于 proto/user/user.proto，那么 .go 文将在 proto/user/user.pb.go 中生成。
+// 2.module：如果指定了 module 参数，例如 module=examples，则生成的 .go 文件将位于 Go 包的导入路径 加上指定的模块目录下。例如，假设 Go 包的导入路径 为 protobuf，并指定 module=examples，那么 .go 文件将生成在 protobuf/examples 目录中，例如：protobuf/examples/user.proto.go。
+// PS:protoc-gen-go 插件的参数需要通过 protoc 命令的 go_opt 参数进行传递（所以实际用的时候只需用protoc命令即可），例如 go_opt=paths=source_relative。
+
+// 更详细教程详见 https://cloud.tencent.com/developer/article/2490247
+option go_package = "./zzlTestCode";
+
+message User { // 定义一个消息类型
+    string name = 1; // 消息的字段定义格式为：[关键字] 类型 字段名 = 编号;
+    int32 age = 2;
+    string email = 3;
+}
+

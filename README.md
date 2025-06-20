@@ -116,19 +116,7 @@
     5.RPC耦合度比RestFul要高
 
 ### (6) Protocol Buffers是什么？（Dgraph服务器之间通过gRPC通讯，而所有的gRPC接口貌似都是传输Protocol Buffers流，如果是HTTP接口则才是JSON）
-  - 6.1 Protocol buffers 与JSON,XML等均是做数据序列化的，但是其是将数据转换为二进制格式。
-        Protocol buffers 是⼀种语⾔中⽴，平台⽆关，可扩展的序列化数据的格式，可⽤于通信协议，数据存储 等。Protocol buffers 在序列化数据具有灵活、⾼效的特点。  
-        Protocol buffers 很适合做数据存储或 RPC 数据交换格式。可⽤于通讯协议、数据存储等领域的语⾔⽆ 关、平台⽆关、可扩展的序列化结构数据格式。  
-        Protocol buffers 在游戏和即时通信用的比较多。  
-  - 6.2 /ZZLdgraph/protos/pb.proto 这个proto类型的文件是 Protobuf 序列化机制的核心配置文件。它类似于 XML 模式（XSD）或 JSON Schema，但更轻量、高效，专为数据序列化和远程过程调用（RPC）设计。
-        该文件与语言无关，可以生成各种语言类似下面3点的pb.go文件，以最终实现跨语言的数据交互
-  - 6.3 如pb.go结尾的文件，都是由protobuf工具根据上面的proto文件 自动生成的，而``内则定义如何去序列化以及反序列化
-        如uidblock中的 Base uint64 `protobuf:"varint,1,opt,name=base,proto3" json:"base,omitempty"`
-        varint    表示  base字段采用Varint编码
-        1         表示  字段标签号，Protobuf 中每个字段必须有唯一的标签号（1-2^29-1），用于在二进制数据中标识字段。
-        opt       表示  当前base字段是可选字段
-        name=base 表示  指定 Protobuf 消息定义中的字段名（需与 proto 文件中的名称一致）
-        proto3    表示  声明使用 Protobuf v3 语法
+  - 详见./zzlProtoTest/zzlTest.proto内注释
 
 ### (7) go语言的一些特性
   - 7.1 结构体后面跟的``内的内容是结构体标签，是一种元数据类型，用于控制操作如何进行的，主要是控制protobuf序列化/反序列化的行为  

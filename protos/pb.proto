@@ -19,7 +19,7 @@
 // SongServerRequest. Use underscore_separated_names for field names – for
 // example, song_name.
 
-syntax = "proto3";
+syntax = "proto3";  // 表示用proto3的格式来定义
 
 package pb;
 
